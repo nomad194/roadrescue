@@ -1,0 +1,46 @@
+import 'package:flutter/material.dart';
+
+import '../presentation/job_requests_screen/job_requests_screen.dart';
+import '../presentation/service_request_screen/service_request_screen.dart';
+import '../presentation/sign_up_login_screen/sign_up_login_screen.dart';
+import '../presentation/admin_dashboard_screen/admin_dashboard_screen.dart';
+import '../presentation/provider_services_screen/provider_services_screen.dart';
+import '../presentation/customer_profile_screen/customer_profile_screen.dart';
+import '../presentation/provider_profile_screen/provider_profile_screen.dart';
+import '../presentation/payment_screen/payment_screen.dart';
+import '../presentation/subscription_plans_screen/subscription_plans_screen.dart';
+import '../presentation/post_payment_screen/post_payment_screen.dart';
+import '../presentation/service_history_screen/service_history_screen.dart';
+import '../presentation/faq_tos_screen/faq_tos_screen.dart';
+
+class AppRoutes {
+  static const String initial = '/';
+  static const String signUpLoginScreen = '/sign-up-login-screen';
+  static const String serviceRequestScreen = '/service-request-screen';
+  static const String jobRequestsScreen = '/job-requests-screen';
+  static const String adminDashboardScreen = '/admin-dashboard-screen';
+  static const String providerServicesScreen = '/provider-services-screen';
+  static const String customerProfileScreen = '/customer-profile-screen';
+  static const String providerProfileScreen = '/provider-profile-screen';
+  static const String paymentScreen = '/payment-screen';
+  static const String subscriptionPlansScreen = '/subscription-plans-screen';
+  static const String postPaymentScreen = '/post-payment-screen';
+  static const String serviceHistoryScreen = '/service-history-screen';
+  static const String faqTosScreen = '/faq-tos-screen';
+
+  static Map<String, WidgetBuilder> routes = {
+    initial: (context) => const SignUpLoginScreen(),
+    signUpLoginScreen: (context) => const SignUpLoginScreen(),
+    serviceRequestScreen: (context) => const ServiceRequestScreen(),
+    jobRequestsScreen: (context) => const JobRequestsScreen(),
+    adminDashboardScreen: (context) => const AdminDashboardScreen(),
+    providerServicesScreen: (context) => const ProviderServicesScreen(),
+    customerProfileScreen: (context) => const CustomerProfileScreen(),
+    providerProfileScreen: (context) => const ProviderProfileScreen(),
+    paymentScreen: (context) => const PaymentScreen(),
+    subscriptionPlansScreen: (context) => const SubscriptionPlansScreen(),
+    postPaymentScreen: (context) => const PostPaymentScreen(),
+    serviceHistoryScreen: (context) => const ServiceHistoryScreen(),
+    faqTosScreen: (context) => const FaqTosScreen(),
+  };
+}

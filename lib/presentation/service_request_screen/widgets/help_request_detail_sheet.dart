@@ -1,0 +1,914 @@
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../../../theme/app_theme.dart';
+import '../../../routes/app_routes.dart';
+import '../../../services/localization_service.dart';
+import '../../../services/notification_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import './active_request_banner_widget.dart';
+
+class HelpRequestDetailSheet extends StatefulWidget {
+  final ActiveHelpRequest request;
+  final VoidCallback onCancel;
+  final VoidCallback? onQuoteAccepted;
+
+  const HelpRequestDetailSheet({
+    super.key,
+    required this.request,
+    required this.onCancel,
+    this.onQuoteAccepted,
+  });
+
+  @override
+  State<HelpRequestDetailSheet> createState() => _HelpRequestDetailSheetState();
+}
+
+class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
+  bool _acceptingQuote = false;
+  bool _showPostPaymentForCash = false;
+  bool _showPostPaymentForOnline = true;
+  bool _whatsappEnabled = true;
+
+  // Provider's accepted payment methods (loaded from quote)
+  bool _providerAcceptsCash = true;
+  bool _providerAcceptsOnline = true;
+
+  bool get _isConfirmed => widget.request.status == HelpRequestStatus.confirmed;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+    _loadProviderPaymentMethods();
+  }
+
+  Future<void> _loadSettings() async {
+    try {
+      final response = await Supabase.instance.client
+          .from('app_settings')
+          .select('setting_key, setting_value')
+          .inFilter('setting_key', [
+            'post_payment_screen_cash',
+            'post_payment_screen_online',
+            'whatsapp_chat_enabled',
+          ]);
+      for (final row in response as List) {
+        if (!mounted) return;
+        if (row['setting_key'] == 'post_payment_screen_cash') {
+          setState(
+            () => _showPostPaymentForCash = row['setting_value'] == 'true',
+          );
+        } else if (row['setting_key'] == 'post_payment_screen_online') {
+          setState(
+            () => _showPostPaymentForOnline = row['setting_value'] == 'true',
+          );
+        } else if (row['setting_key'] == 'whatsapp_chat_enabled') {
+          setState(() => _whatsappEnabled = row['setting_value'] == 'true');
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadProviderPaymentMethods() async {
+    try {
+      // Load accepted_payment_methods from the job_request record
+      final response = await Supabase.instance.client
+          .from('job_requests')
+          .select('accepted_payment_methods')
+          .eq('id', widget.request.id)
+          .maybeSingle();
+      if (response != null && mounted) {
+        final methods =
+            (response['accepted_payment_methods'] as String?) ?? 'cash,online';
+        setState(() {
+          _providerAcceptsCash = methods.contains('cash');
+          _providerAcceptsOnline = methods.contains('online');
+        });
+      }
+    } catch (_) {}
+  }
+
+  // COD acceptance: confirm immediately, notify provider
+  void _acceptWithCOD(BuildContext context) async {
+    if (_acceptingQuote) return;
+    setState(() => _acceptingQuote = true);
+    final l = LocalizationService.instance;
+    try {
+      await Supabase.instance.client
+          .from('job_requests')
+          .update({
+            'job_status': 'confirmed',
+            'payment_method_used': 'cash',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', widget.request.id);
+
+      // Notify provider: COD confirmed
+      await NotificationService.instance.showLocalNotification(
+        title: '✅ Quote Accepted (COD)',
+        body: 'Your quote has been accepted. Order confirmed (COD).',
+        payload: 'booking_confirmed_cod',
+      );
+
+      if (!mounted) return;
+      final nav = Navigator.of(context);
+      final sm = ScaffoldMessenger.of(context);
+      
+      nav.pop();
+      widget.onQuoteAccepted?.call();
+
+      if (_showPostPaymentForCash) {
+        nav.pushNamed(
+          AppRoutes.postPaymentScreen,
+          arguments: {
+            'amount': widget.request.quotedPrice ?? 0.0,
+            'bookingId': widget.request.id,
+            'serviceType': widget.request.serviceType,
+            'providerName': widget.request.providerName ?? '',
+            'providerBusiness': widget.request.providerBusiness ?? '',
+            'providerPhone': widget.request.providerPhone ?? '',
+            'paymentMethod': 'Cash on Delivery',
+            'customerName': 'Customer',
+          },
+        );
+      } else {
+        sm.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Order confirmed! Provider notified (COD).',
+              style: GoogleFonts.manrope(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            backgroundColor: AppTheme.success,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _acceptingQuote = false);
+        final sm = ScaffoldMessenger.of(context);
+        sm.showSnackBar(
+          SnackBar(
+            content: Text(
+              l.t('generic_error'),
+              style: GoogleFonts.manrope(fontSize: 13),
+            ),
+            backgroundColor: AppTheme.error,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
+    }
+  }
+
+  // Online payment: redirect to payment gateway
+  void _acceptWithOnlinePayment(BuildContext context) {
+    if (!mounted) return;
+    final nav = Navigator.of(context);
+    
+    nav.pop();
+    nav.pushNamed(
+      AppRoutes.paymentScreen,
+      arguments: {
+        'amount': widget.request.quotedPrice ?? 0.0,
+        'bookingId': widget.request.id,
+        'customerId': null,
+        'providerId': null,
+        'serviceType': widget.request.serviceType,
+        'providerName': widget.request.providerName,
+        'providerBusiness': widget.request.providerBusiness,
+        'providerPhone': widget.request.providerPhone,
+        'paymentMethod': 'Online',
+        'showPostPaymentScreen': _showPostPaymentForOnline,
+        'onPaymentSuccess': true,
+      },
+    );
+  }
+
+  void _openWhatsApp(BuildContext context) {
+    final phone =
+        widget.request.providerPhone?.replaceAll(RegExp(r'[^\d+]'), '') ?? '';
+    final message = Uri.encodeComponent(
+      'Hi ${widget.request.providerName ?? 'there'}, I\'m the customer for booking #${widget.request.id.substring(0, 8)} (${widget.request.serviceType}). I\'m at ${widget.request.address}.',
+    );
+    final url = 'https://wa.me/$phone?text=$message';
+    final sm = ScaffoldMessenger.of(context);
+    sm.showSnackBar(
+      SnackBar(
+        content: Text(
+          'Opening WhatsApp to chat with ${widget.request.providerName ?? 'your provider'}...',
+          style: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600),
+        ),
+        backgroundColor: const Color(0xFF25D366),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+    debugPrint('WhatsApp URL: $url');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = LocalizationService.instance;
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            margin: const EdgeInsets.only(top: 12, bottom: 4),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: AppTheme.outline,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header row
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${l.t('active_request')} #${widget.request.id.substring(0, 8)}',
+                              style: GoogleFonts.manrope(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w800,
+                                color: AppTheme.onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              widget.request.serviceType,
+                              style: GoogleFonts.manrope(
+                                fontSize: 13,
+                                color: AppTheme.muted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      _buildStatusChip(l),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Location row
+                  _buildInfoRow(
+                    Icons.location_on_rounded,
+                    AppTheme.error,
+                    widget.request.address,
+                  ),
+                  const SizedBox(height: 8),
+                  _buildInfoRow(
+                    Icons.description_outlined,
+                    AppTheme.primary,
+                    widget.request.description,
+                  ),
+
+                  // Provider card — only shown when confirmed
+                  if (_isConfirmed && widget.request.providerName != null) ...[
+                    const SizedBox(height: 20),
+                    _buildProviderCard(context, l),
+                  ],
+
+                  // Provider card for quoted status (preview)
+                  if (widget.request.status == HelpRequestStatus.quoted &&
+                      widget.request.providerName != null) ...[
+                    const SizedBox(height: 20),
+                    _buildQuotedProviderCard(l),
+                  ],
+
+                  // Quoted price — shown when quoted or confirmed
+                  if ((widget.request.status == HelpRequestStatus.quoted ||
+                          _isConfirmed) &&
+                      widget.request.quotedPrice != null) ...[
+                    const SizedBox(height: 16),
+                    _buildPriceRow(l),
+                  ],
+
+                  // Next steps
+                  const SizedBox(height: 20),
+                  Text(
+                    'Suggested Next Steps',
+                    style: GoogleFonts.manrope(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  ..._nextSteps.asMap().entries.map(
+                    (e) => _buildNextStepTile(
+                      e.key + 1,
+                      e.value['icon'] as IconData,
+                      e.value['title'] as String,
+                      e.value['desc'] as String,
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // ── QUOTED: Show payment method selection ──────────────────────────
+                  if (widget.request.status == HelpRequestStatus.quoted &&
+                      widget.request.quotedPrice != null) ...[
+                    _buildPaymentMethodSelector(context, l),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // ── CONFIRMED: WhatsApp button (only if admin enabled) ────────────
+                  if (_isConfirmed && _whatsappEnabled) ...[
+                    _buildWhatsAppButton(context, l),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // Cancel button — shown when pending or quoted
+                  if (widget.request.status == HelpRequestStatus.pending ||
+                      widget.request.status == HelpRequestStatus.quoted)
+                    _buildCancelButton(context, l),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Payment method selector shown at quote stage ──────────────────────────
+  Widget _buildPaymentMethodSelector(BuildContext context, LocalizationService l) {
+    final hasOnline = _providerAcceptsOnline;
+    final hasCash = _providerAcceptsCash;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Choose Payment Method',
+          style: GoogleFonts.manrope(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: AppTheme.onSurface,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Select how you\'d like to pay for this service',
+          style: GoogleFonts.manrope(fontSize: 12, color: AppTheme.muted),
+        ),
+        const SizedBox(height: 12),
+
+        // Online payment button (only if provider accepts online)
+        if (hasOnline) ...[
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _acceptingQuote
+                  ? null
+                  : () => _acceptWithOnlinePayment(context),
+              icon: _acceptingQuote
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.credit_card_rounded, size: 20),
+              label: Text(
+                'Pay Online · \$${widget.request.quotedPrice!.toStringAsFixed(2)}',
+                style: GoogleFonts.manrope(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                foregroundColor: Colors.white,
+                minimumSize: const Size(double.infinity, 52),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                elevation: 0,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+
+        // COD button (only if provider accepts cash)
+        if (hasCash) ...[
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _acceptingQuote ? null : () => _acceptWithCOD(context),
+              icon: const Icon(Icons.payments_outlined, size: 20),
+              label: Text(
+                'Cash on Delivery · \$${widget.request.quotedPrice!.toStringAsFixed(2)}',
+                style: GoogleFonts.manrope(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.success,
+                side: BorderSide(color: AppTheme.success.withAlpha(150)),
+                minimumSize: const Size(double.infinity, 52),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ),
+        ],
+
+        // If neither is available (shouldn't happen but fallback)
+        if (!hasOnline && !hasCash) ...[
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppTheme.warningContainer,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  color: AppTheme.warning,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'No payment methods available. Contact provider.',
+                    style: GoogleFonts.manrope(
+                      fontSize: 13,
+                      color: AppTheme.warning,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  List<Map<String, dynamic>> get _nextSteps {
+    switch (widget.request.status) {
+      case HelpRequestStatus.pending:
+        return [
+          {
+            'icon': Icons.wifi_tethering_rounded,
+            'title': 'Stay connected',
+            'desc': 'Keep your phone nearby — providers will respond shortly.',
+          },
+          {
+            'icon': Icons.location_on_rounded,
+            'title': 'Stay at your location',
+            'desc':
+                'Remain with your vehicle so the provider can find you easily.',
+          },
+          {
+            'icon': Icons.notifications_active_rounded,
+            'title': 'Watch for quotes',
+            'desc':
+                'You\'ll be notified when a provider sends you a price quote.',
+          },
+          {
+            'icon': Icons.security_rounded,
+            'title': 'Stay safe',
+            'desc':
+                'If on a highway, turn on hazard lights and stay off the road.',
+          },
+        ];
+      case HelpRequestStatus.quoted:
+        return [
+          {
+            'icon': Icons.request_quote_rounded,
+            'title': 'Review the quote',
+            'desc': 'Check the provider\'s price and estimated arrival time.',
+          },
+          {
+            'icon': Icons.payment_rounded,
+            'title': 'Choose payment method',
+            'desc': 'Pay online via card or choose Cash on Delivery.',
+          },
+          {
+            'icon': Icons.check_circle_outline_rounded,
+            'title': 'Confirm your booking',
+            'desc':
+                'Once payment is processed, your booking will be confirmed.',
+          },
+        ];
+      case HelpRequestStatus.confirmed:
+        return [
+          {
+            'icon': Icons.directions_car_rounded,
+            'title': 'Provider is on the way',
+            'desc':
+                'Your provider is heading to your location. ETA: ${widget.request.etaMinutes ?? '—'} min.',
+          },
+          {
+            'icon': Icons.chat_rounded,
+            'title': 'Chat via WhatsApp',
+            'desc':
+                'Use the WhatsApp button below to coordinate directly with your provider.',
+          },
+          {
+            'icon': Icons.location_on_rounded,
+            'title': 'Stay visible',
+            'desc':
+                'Turn on hazard lights and stay near your vehicle for easy identification.',
+          },
+        ];
+      case HelpRequestStatus.cancelled:
+        return [
+          {
+            'icon': Icons.refresh_rounded,
+            'title': 'Submit a new request',
+            'desc': 'You can submit a new help request at any time.',
+          },
+        ];
+    }
+  }
+
+  Widget _buildStatusChip(LocalizationService l) {
+    Color color;
+    String label;
+    switch (widget.request.status) {
+      case HelpRequestStatus.pending:
+        color = AppTheme.warning;
+        label = l.t('standard');
+        break;
+      case HelpRequestStatus.quoted:
+        color = AppTheme.primary;
+        label = l.t('quote_received');
+        break;
+      case HelpRequestStatus.confirmed:
+        color = AppTheme.success;
+        label = l.t('booking_confirmed');
+        break;
+      case HelpRequestStatus.cancelled:
+        color = AppTheme.muted;
+        label = l.t('cancel_request');
+        break;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withAlpha(25),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withAlpha(80)),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.manrope(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(IconData icon, Color iconColor, String text) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: iconColor),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: GoogleFonts.manrope(
+              fontSize: 13,
+              color: AppTheme.onSurfaceVariant,
+              height: 1.4,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuotedProviderCard(LocalizationService l) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryContainer,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.primary.withAlpha(60)),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: AppTheme.primary.withAlpha(40),
+            backgroundImage: widget.request.providerImageUrl != null
+                ? NetworkImage(widget.request.providerImageUrl!)
+                : null,
+            child: widget.request.providerImageUrl == null
+                ? Icon(Icons.person_rounded, color: AppTheme.primary, size: 22)
+                : null,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.request.providerName ?? '',
+                  style: GoogleFonts.manrope(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.onSurface,
+                  ),
+                ),
+                if (widget.request.etaMinutes != null)
+                  Text(
+                    'ETA: ${widget.request.etaMinutes} min',
+                    style: GoogleFonts.manrope(
+                      fontSize: 12,
+                      color: AppTheme.primary,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProviderCard(BuildContext context, LocalizationService l) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.successContainer,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.success.withAlpha(60)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            l.t('service_provider'),
+            style: GoogleFonts.manrope(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.success,
+              letterSpacing: 0.5,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 24,
+                backgroundColor: AppTheme.success.withAlpha(40),
+                backgroundImage: widget.request.providerImageUrl != null
+                    ? NetworkImage(widget.request.providerImageUrl!)
+                    : null,
+                child: widget.request.providerImageUrl == null
+                    ? Icon(
+                        Icons.person_rounded,
+                        color: AppTheme.success,
+                        size: 24,
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.request.providerName ?? '',
+                      style: GoogleFonts.manrope(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.onSurface,
+                      ),
+                    ),
+                    if (widget.request.providerBusiness != null)
+                      Text(
+                        widget.request.providerBusiness!,
+                        style: GoogleFonts.manrope(
+                          fontSize: 12,
+                          color: AppTheme.muted,
+                        ),
+                      ),
+                    if (widget.request.providerPhone != null)
+                      Text(
+                        widget.request.providerPhone!,
+                        style: GoogleFonts.manrope(
+                          fontSize: 12,
+                          color: AppTheme.onSurfaceVariant,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (widget.request.etaMinutes != null) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Icon(
+                  Icons.access_time_rounded,
+                  size: 14,
+                  color: AppTheme.success,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  'ETA: ${widget.request.etaMinutes} minutes',
+                  style: GoogleFonts.manrope(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.success,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPriceRow(LocalizationService l) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.attach_money_rounded, color: AppTheme.primary, size: 18),
+          const SizedBox(width: 6),
+          Text(
+            _isConfirmed ? 'Agreed Price' : 'Quoted Price',
+            style: GoogleFonts.manrope(
+              fontSize: 13,
+              color: AppTheme.onSurfaceVariant,
+            ),
+          ),
+          const Spacer(),
+          Text(
+            '\$${widget.request.quotedPrice!.toStringAsFixed(2)}',
+            style: GoogleFonts.manrope(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNextStepTile(
+    int step,
+    IconData icon,
+    String title,
+    String desc,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: AppTheme.primary.withAlpha(20),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Center(
+              child: Text(
+                '$step',
+                style: GoogleFonts.manrope(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.primary,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(icon, size: 14, color: AppTheme.primary),
+                    const SizedBox(width: 5),
+                    Text(
+                      title,
+                      style: GoogleFonts.manrope(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.onSurface,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  desc,
+                  style: GoogleFonts.manrope(
+                    fontSize: 12,
+                    color: AppTheme.muted,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWhatsAppButton(BuildContext context, LocalizationService l) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: () {
+          if (!context.mounted) return;
+          _openWhatsApp(context);
+        },
+        icon: const Icon(Icons.chat_rounded, size: 18),
+        label: Text(
+          'Chat with Provider on WhatsApp',
+          style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w700),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF25D366),
+          foregroundColor: Colors.white,
+          minimumSize: const Size(double.infinity, 50),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          elevation: 0,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCancelButton(BuildContext context, LocalizationService l) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: () {
+          if (!context.mounted) return;
+          Navigator.pop(context);
+          widget.onCancel();
+        },
+        icon: const Icon(Icons.cancel_outlined, size: 18),
+        label: Text(
+          l.t('cancel_request'),
+          style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w600),
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppTheme.error,
+          side: BorderSide(color: AppTheme.error.withAlpha(120)),
+          minimumSize: const Size(double.infinity, 50),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      ),
+    );
+  }
+}

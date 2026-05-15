@@ -1,0 +1,795 @@
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../routes/app_routes.dart';
+import '../../services/supabase_service.dart';
+import '../../services/localization_service.dart';
+import '../../theme/app_theme.dart';
+import './widgets/location_card_widget.dart';
+import './widgets/request_form_widget.dart';
+import './widgets/request_submit_button_widget.dart';
+import './widgets/service_category_grid_widget.dart';
+import './widgets/active_request_banner_widget.dart';
+import './widgets/help_request_detail_sheet.dart';
+
+class ServiceRequestScreen extends StatefulWidget {
+  const ServiceRequestScreen({super.key});
+
+  @override
+  State<ServiceRequestScreen> createState() => _ServiceRequestScreenState();
+}
+
+class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
+  String? _selectedCategory;
+  String? _selectedVehicleSize;
+  String _urgencyLevel = 'standard';
+  bool _isSubmitting = false;
+
+  // Active help request state (backed by real DB)
+  ActiveHelpRequest? _activeRequest;
+  RealtimeChannel? _requestSubscription;
+
+  final _descriptionController = TextEditingController();
+
+  static const List<Map<String, dynamic>> _categoryMaps = [
+    {
+      'id': 'towing',
+      'translations': {
+        'en': 'Towing',
+        'es': 'Remolque',
+        'fr': 'Remorquage',
+        'pt': 'Reboque',
+        'de': 'Abschleppen',
+        'ar': 'سحب السيارة',
+      },
+      'label': 'Towing',
+      'icon': 'local_shipping',
+      'description': 'Vehicle tow to nearest garage',
+      'avgTime': '25–45 min',
+      'vehicleSizes': [
+        'motorcycle',
+        'sedan',
+        'suv',
+        'pickup',
+        'van',
+        'large_truck',
+      ],
+    },
+    {
+      'id': 'flat_tire',
+      'translations': {
+        'en': 'Flat Tire',
+        'es': 'Llanta Ponchada',
+        'fr': 'Pneu Crevé',
+        'pt': 'Pneu Furado',
+        'de': 'Reifenpanne',
+        'ar': 'إطار مثقوب',
+      },
+      'label': 'Flat Tire',
+      'icon': 'tire_repair',
+      'description': 'Tire change or repair',
+      'avgTime': '15–25 min',
+      'vehicleSizes': ['motorcycle', 'sedan', 'suv', 'pickup'],
+    },
+    {
+      'id': 'lockout',
+      'translations': {
+        'en': 'Lockout',
+        'es': 'Apertura de Vehículo',
+        'fr': 'Ouverture de Véhicule',
+        'pt': 'Abertura de Veículo',
+        'de': 'Fahrzeugöffnung',
+        'ar': 'فتح السيارة',
+      },
+      'label': 'Lockout',
+      'icon': 'lock_open',
+      'description': 'Unlock your vehicle',
+      'avgTime': '10–20 min',
+      'vehicleSizes': ['sedan', 'suv', 'pickup', 'van'],
+    },
+    {
+      'id': 'fuel',
+      'translations': {
+        'en': 'Fuel Delivery',
+        'es': 'Entrega de Combustible',
+        'fr': 'Livraison de Carburant',
+        'pt': 'Entrega de Combustível',
+        'de': 'Kraftstofflieferung',
+        'ar': 'توصيل الوقود',
+      },
+      'label': 'Fuel Delivery',
+      'icon': 'local_gas_station',
+      'description': 'Emergency fuel drop-off',
+      'avgTime': '20–35 min',
+      'vehicleSizes': ['motorcycle', 'sedan', 'suv', 'pickup', 'van'],
+    },
+    {
+      'id': 'jump_start',
+      'translations': {
+        'en': 'Jump Start',
+        'es': 'Arranque de Batería',
+        'fr': 'Démarrage de Batterie',
+        'pt': 'Partida de Bateria',
+        'de': 'Starthilfe',
+        'ar': 'تشغيل البطارية',
+      },
+      'label': 'Jump Start',
+      'icon': 'bolt',
+      'description': 'Battery jump start',
+      'avgTime': '10–20 min',
+      'vehicleSizes': ['sedan', 'suv'],
+    },
+    {
+      'id': 'battery',
+      'translations': {
+        'en': 'Battery',
+        'es': 'Batería',
+        'fr': 'Batterie',
+        'pt': 'Bateria',
+        'de': 'Batterie',
+        'ar': 'البطارية',
+      },
+      'label': 'Battery',
+      'icon': 'battery_alert',
+      'description': 'Battery replacement',
+      'avgTime': '20–40 min',
+      'vehicleSizes': ['sedan', 'suv', 'pickup'],
+    },
+  ];
+
+  static const List<Map<String, dynamic>> _vehicleSizeOptions = [
+    {'id': 'motorcycle', 'label': 'Motorcycle', 'emoji': '🏍️'},
+    {'id': 'sedan', 'label': 'Sedan / Car', 'emoji': '🚗'},
+    {'id': 'suv', 'label': 'SUV', 'emoji': '🚙'},
+    {'id': 'pickup', 'label': 'Pickup', 'emoji': '🛻'},
+    {'id': 'van', 'label': 'Van', 'emoji': '🚐'},
+    {'id': 'large_truck', 'label': 'Large Truck', 'emoji': '🚛'},
+  ];
+
+  List<Map<String, dynamic>> get _availableVehicleSizes {
+    if (_selectedCategory == null) return [];
+    final cat = _categoryMaps.firstWhere(
+      (c) => c['id'] == _selectedCategory,
+      orElse: () => {},
+    );
+    if (cat.isEmpty) return [];
+    final sizes = (cat['vehicleSizes'] as List<dynamic>?) ?? [];
+    return _vehicleSizeOptions.where((v) => sizes.contains(v['id'])).toList();
+  }
+
+  String get _selectedCategoryLabel {
+    if (_selectedCategory == null) return '';
+    final cat = _categoryMaps.firstWhere(
+      (c) => c['id'] == _selectedCategory,
+      orElse: () => {'label': '', 'translations': <String, String>{}},
+    );
+    final l = LocalizationService.instance;
+    final translations = cat['translations'] as Map?;
+    if (translations != null) {
+      return l.translateContent(
+        translations.map((k, v) => MapEntry(k.toString(), v.toString())),
+        fallbackText: cat['label'] as String? ?? '',
+      );
+    }
+    return cat['label'] as String? ?? '';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadActiveRequest();
+  }
+
+  @override
+  void dispose() {
+    _descriptionController.dispose();
+    _requestSubscription?.unsubscribe();
+    super.dispose();
+  }
+
+  Future<void> _loadActiveRequest() async {
+    final data = await SupabaseService.instance.getActiveJobRequest();
+    if (data != null && mounted) {
+      setState(() => _activeRequest = _mapToActiveRequest(data));
+      _subscribeToRequest(data['id'] as String);
+    }
+  }
+
+  void _subscribeToRequest(String requestId) {
+    _requestSubscription?.unsubscribe();
+    _requestSubscription = SupabaseService.instance.subscribeToJobRequest(
+      requestId,
+      (record) async {
+        if (!mounted) return;
+        // Re-fetch with provider join for full data
+        final updated = await SupabaseService.instance.getActiveJobRequest();
+        if (updated != null && mounted) {
+          setState(() => _activeRequest = _mapToActiveRequest(updated));
+        }
+      },
+    );
+  }
+
+  ActiveHelpRequest _mapToActiveRequest(Map<String, dynamic> data) {
+    final provider = data['provider'] as Map<String, dynamic>?;
+    final statusStr = data['job_status'] as String? ?? 'pending';
+    HelpRequestStatus status;
+    switch (statusStr) {
+      case 'quoted':
+        status = HelpRequestStatus.quoted;
+        break;
+      case 'confirmed':
+      case 'accepted':
+      case 'in_progress':
+        status = HelpRequestStatus.confirmed;
+        break;
+      case 'cancelled':
+        status = HelpRequestStatus.cancelled;
+        break;
+      default:
+        status = HelpRequestStatus.pending;
+    }
+
+    return ActiveHelpRequest(
+      id: data['id'] as String,
+      serviceType: data['service_type'] as String? ?? '',
+      serviceIcon: data['service_icon'] as String? ?? 'build',
+      address: data['address'] as String? ?? '',
+      description: data['description'] as String? ?? '',
+      urgency: data['urgency'] as String? ?? 'standard',
+      status: status,
+      submittedAt:
+          DateTime.tryParse(data['created_at'] as String? ?? '') ??
+          DateTime.now(),
+      providerName: provider?['full_name'] as String?,
+      providerPhone: provider?['phone'] as String?,
+      providerBusiness: provider?['business_name'] as String?,
+      providerImageUrl: provider?['avatar_url'] as String?,
+      quotedPrice: (data['quoted_price'] as num?)?.toDouble(),
+      etaMinutes: data['eta_minutes'] as int?,
+    );
+  }
+
+  void _onCategorySelected(String id) {
+    setState(() {
+      _selectedCategory = id;
+      _selectedVehicleSize = null;
+    });
+  }
+
+  void _onUrgencyChanged(String level) {
+    setState(() => _urgencyLevel = level);
+  }
+
+  Future<void> _onSubmit() async {
+    final l = LocalizationService.instance;
+    if (_selectedCategory == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            l.t('select_service'),
+            style: GoogleFonts.manrope(fontSize: 14),
+          ),
+          backgroundColor: AppTheme.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+      return;
+    }
+    if (_availableVehicleSizes.isNotEmpty && _selectedVehicleSize == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            l.t('vehicle_size_subtitle'),
+            style: GoogleFonts.manrope(fontSize: 14),
+          ),
+          backgroundColor: AppTheme.warning,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+    try {
+      final serviceIcon =
+          _categoryMaps.firstWhere(
+                (c) => c['id'] == _selectedCategory,
+                orElse: () => {'icon': 'build'},
+              )['icon']
+              as String;
+
+      final data = await SupabaseService.instance.createJobRequest(
+        serviceType: _selectedCategoryLabel,
+        serviceIcon: serviceIcon,
+        vehicleSize: _selectedVehicleSize ?? '',
+        address: '4721 Maple Ave, Austin, TX',
+        description: _descriptionController.text.isNotEmpty
+            ? _descriptionController.text
+            : 'No additional details provided.',
+        urgency: _urgencyLevel,
+      );
+
+      final newRequest = _mapToActiveRequest(data);
+      setState(() {
+        _activeRequest = newRequest;
+        _selectedCategory = null;
+        _selectedVehicleSize = null;
+        _descriptionController.clear();
+      });
+
+      _subscribeToRequest(data['id'] as String);
+      _showRequestSubmittedDialog(data['id'] as String);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              l.t('generic_error'),
+              style: GoogleFonts.manrope(fontSize: 14),
+            ),
+            backgroundColor: AppTheme.error,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  void _showRequestSubmittedDialog(String requestId) {
+    final l = LocalizationService.instance;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        contentPadding: const EdgeInsets.all(24),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: AppTheme.successContainer,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Icon(
+                Icons.check_circle_rounded,
+                size: 36,
+                color: AppTheme.success,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              l.t('request_submitted'),
+              style: GoogleFonts.manrope(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              l.t('searching_providers_info'),
+              style: GoogleFonts.manrope(
+                fontSize: 13,
+                color: AppTheme.onSurfaceVariant,
+                height: 1.5,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryContainer,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.info_outline_rounded,
+                    size: 14,
+                    color: AppTheme.primary,
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      l.t('whatsapp_info_after_confirm'),
+                      style: GoogleFonts.manrope(
+                        fontSize: 11,
+                        color: AppTheme.primary,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primary,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 44),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  elevation: 0,
+                ),
+                child: Text(
+                  l.t('track_my_request'),
+                  style: GoogleFonts.manrope(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openRequestDetail() {
+    if (_activeRequest == null) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.75,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (_, scrollController) => HelpRequestDetailSheet(
+          request: _activeRequest!,
+          onCancel: _cancelRequest,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _cancelRequest() async {
+    if (_activeRequest == null) return;
+    final l = LocalizationService.instance;
+    try {
+      await SupabaseService.instance.cancelJobRequest(_activeRequest!.id);
+      _requestSubscription?.unsubscribe();
+      _requestSubscription = null;
+      if (mounted) {
+        setState(() => _activeRequest = null);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              l.t('help_request_cancelled'),
+              style: GoogleFonts.manrope(fontSize: 13),
+            ),
+            backgroundColor: AppTheme.error,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _activeRequest = null);
+      }
+    }
+  }
+
+  Future<void> _signOut() async {
+    await SupabaseService.instance.signOut();
+    if (mounted) {
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        AppRoutes.signUpLoginScreen,
+        (r) => false,
+      );
+    }
+  }
+
+  bool get _isTablet => MediaQuery.of(context).size.width >= 600;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = LocalizationService.instance;
+    return Scaffold(
+      backgroundColor: AppTheme.background,
+      appBar: AppBar(
+        backgroundColor: AppTheme.surface,
+        elevation: 0,
+        scrolledUnderElevation: 1,
+        shadowColor: Colors.black.withAlpha(20),
+        surfaceTintColor: Colors.transparent,
+        leading: IconButton(
+          icon: const Icon(Icons.logout_rounded),
+          onPressed: _signOut,
+          tooltip: l.t('sign_out'),
+        ),
+        title: Text(
+          l.t('request_help'),
+          style: GoogleFonts.manrope(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: AppTheme.onSurface,
+          ),
+        ),
+        actions: [
+          IconButton(
+            onPressed: () =>
+                Navigator.pushNamed(context, AppRoutes.customerProfileScreen),
+            icon: const Icon(
+              Icons.person_outline_rounded,
+              size: 22,
+              color: AppTheme.primary,
+            ),
+            tooltip: l.t('my_profile'),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: TextButton.icon(
+              onPressed: () => Navigator.pushNamedAndRemoveUntil(
+                context,
+                AppRoutes.jobRequestsScreen,
+                (r) => false,
+              ),
+              icon: const Icon(Icons.work_outline_rounded, size: 16),
+              label: Text(
+                'Provider View',
+                style: GoogleFonts.manrope(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            if (_activeRequest != null &&
+                _activeRequest!.status != HelpRequestStatus.cancelled)
+              ActiveRequestBannerWidget(
+                request: _activeRequest!,
+                onTap: _openRequestDetail,
+              ),
+            Expanded(
+              child: _isTablet ? _buildTabletLayout(l) : _buildPhoneLayout(l),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPhoneLayout(LocalizationService l) {
+    return SingleChildScrollView(
+      physics: const ClampingScrollPhysics(),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const LocationCardWidget(),
+            const SizedBox(height: 20),
+            _buildSectionHeader(
+              l.t('what_do_you_need'),
+              l.t('select_service_subtitle'),
+            ),
+            const SizedBox(height: 12),
+            ServiceCategoryGridWidget(
+              categories: _categoryMaps,
+              selectedId: _selectedCategory,
+              onSelected: _onCategorySelected,
+              crossAxisCount: 2,
+            ),
+            if (_selectedCategory != null &&
+                _availableVehicleSizes.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              _buildVehicleSizePicker(l),
+            ],
+            const SizedBox(height: 20),
+            RequestFormWidget(
+              controller: _descriptionController,
+              urgencyLevel: _urgencyLevel,
+              onUrgencyChanged: _onUrgencyChanged,
+            ),
+            const SizedBox(height: 24),
+            RequestSubmitButtonWidget(
+              isSubmitting: _isSubmitting,
+              isEnabled: _selectedCategory != null,
+              onSubmit: _onSubmit,
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVehicleSizePicker(LocalizationService l) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader(
+          l.t('vehicle_size'),
+          l.t('vehicle_size_subtitle'),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 90,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: _availableVehicleSizes.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (context, index) {
+              final vehicle = _availableVehicleSizes[index];
+              final isSelected = _selectedVehicleSize == vehicle['id'];
+              return GestureDetector(
+                onTap: () => setState(
+                  () => _selectedVehicleSize = vehicle['id'] as String,
+                ),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: 80,
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 10,
+                    horizontal: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isSelected ? AppTheme.primary : AppTheme.surface,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: isSelected
+                          ? AppTheme.primary
+                          : AppTheme.outlineVariant,
+                      width: isSelected ? 2 : 1,
+                    ),
+                    boxShadow: isSelected
+                        ? [
+                            BoxShadow(
+                              color: AppTheme.primary.withAlpha(64),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        vehicle['emoji'] as String,
+                        style: const TextStyle(fontSize: 26),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        vehicle['label'] as String,
+                        style: GoogleFonts.manrope(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: isSelected
+                              ? Colors.white
+                              : AppTheme.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTabletLayout(LocalizationService l) {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 6,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildSectionHeader(
+                    l.t('what_do_you_need'),
+                    l.t('select_service_subtitle'),
+                  ),
+                  const SizedBox(height: 12),
+                  ServiceCategoryGridWidget(
+                    categories: _categoryMaps,
+                    selectedId: _selectedCategory,
+                    onSelected: _onCategorySelected,
+                    crossAxisCount: 3,
+                  ),
+                  if (_selectedCategory != null &&
+                      _availableVehicleSizes.isNotEmpty) ...[
+                    const SizedBox(height: 20),
+                    _buildVehicleSizePicker(l),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 24),
+          Expanded(
+            flex: 4,
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  const LocationCardWidget(),
+                  const SizedBox(height: 16),
+                  RequestFormWidget(
+                    controller: _descriptionController,
+                    urgencyLevel: _urgencyLevel,
+                    onUrgencyChanged: _onUrgencyChanged,
+                  ),
+                  const SizedBox(height: 20),
+                  RequestSubmitButtonWidget(
+                    isSubmitting: _isSubmitting,
+                    isEnabled: _selectedCategory != null,
+                    onSubmit: _onSubmit,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title, String subtitle) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: GoogleFonts.manrope(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: AppTheme.onSurface,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          subtitle,
+          style: GoogleFonts.manrope(fontSize: 13, color: AppTheme.muted),
+        ),
+      ],
+    );
+  }
+}
