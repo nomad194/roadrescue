@@ -25,7 +25,11 @@ class SupabaseService {
       return;
     }
     try {
-      await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey);
+      await Supabase.initialize(
+          url: "https://tphzsrsdtiujzqbxqfhe.supabase.co",
+          anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRwaHpzcnNkdGl1anpxYnhxZmhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3MTc4MzIsImV4cCI6MjA5NDI5MzgzMn0.pABNzefhw6c4iKzj_T4fQLcB8KIAeT6gwpnBqF0J6Ww"
+      );
+
       _isInitialized = true;
       debugPrint('✅ Supabase initialized successfully.');
     } catch (e) {
