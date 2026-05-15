@@ -15,16 +15,32 @@ class SupabaseService {
     defaultValue: '',
   );
 
+  static bool _isInitialized = false;
+  static bool get isInitialized => _isInitialized;
+
   static Future<void> initialize() async {
     if (supabaseUrl.isEmpty || supabaseAnonKey.isEmpty) {
-      throw Exception(
-        'SUPABASE_URL and SUPABASE_ANON_KEY must be defined using --dart-define.',
-      );
+      debugPrint('⚠️ SUPABASE CONFIGURATION MISSING');
+      debugPrint('Please provide SUPABASE_URL and SUPABASE_ANON_KEY.');
+      return;
     }
-    await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey);
+    try {
+      await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey);
+      _isInitialized = true;
+      debugPrint('✅ Supabase initialized successfully.');
+    } catch (e) {
+      debugPrint('❌ Supabase initialization error: $e');
+    }
   }
 
-  SupabaseClient get client => Supabase.instance.client;
+  SupabaseClient get client {
+    if (!_isInitialized) {
+      throw Exception(
+        'Supabase is not initialized. Check your SUPABASE_URL and SUPABASE_ANON_KEY.',
+      );
+    }
+    return Supabase.instance.client;
+  }
 
   // ─── AUTH ────────────────────────────────────────────────────────────────
 

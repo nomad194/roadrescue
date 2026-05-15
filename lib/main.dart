@@ -14,14 +14,16 @@ import 'core/app_export.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Supabase
-  try {
-    await SupabaseService.initialize();
-  } catch (e) {
-    debugPrint('Failed to initialize Supabase: $e');
+  // 1. Initialize Supabase (CRITICAL)
+  await SupabaseService.initialize();
+
+  // If Supabase failed to initialize, we show a special Setup screen
+  if (!SupabaseService.isInitialized) {
+    runApp(const SetupRequiredApp());
+    return;
   }
 
-  // Initialize Stripe
+  // 2. Initialize Other Services
   try {
     Stripe.publishableKey = const String.fromEnvironment(
       'STRIPE_PUBLISHABLE_KEY',
@@ -34,14 +36,12 @@ void main() async {
     debugPrint('Failed to initialize Stripe: $e');
   }
 
-  // Initialize Localization
   try {
     await LocalizationService.instance.initialize();
   } catch (e) {
     debugPrint('Failed to initialize localization: $e');
   }
 
-  // Initialize Notifications
   try {
     await NotificationService.instance.initialize();
   } catch (e) {
@@ -56,22 +56,85 @@ void main() async {
       hasShownError = true;
 
       // Reset flag after 3 seconds to allow error widget on new screens
-      Future.delayed(Duration(seconds: 5), () {
+      Future.delayed(const Duration(seconds: 5), () {
         hasShownError = false;
       });
 
       return CustomErrorWidget(errorDetails: details);
     }
-    return SizedBox.shrink();
+    return const SizedBox.shrink();
   };
 
   // 🚨 CRITICAL: Device orientation lock - DO NOT REMOVE
-  // SystemChrome.setPreferredOrientations is a no-op on web and must be
-  // guarded so runApp() is never blocked by a web-unsupported future.
   if (!kIsWeb) {
     await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   }
-  runApp(MyApp());
+  runApp(const MyApp());
+}
+
+/// A fallback app shown when Supabase configuration is missing.
+class SetupRequiredApp extends StatelessWidget {
+  const SetupRequiredApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        backgroundColor: const Color(0xFFFAFAFA),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.settings_suggest_rounded,
+                    size: 80, color: Color(0xFF6366F1)),
+                const SizedBox(height: 24),
+                const Text(
+                  'RoadRescue Setup Required',
+                  style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF1E1B4B)),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Please provide your SUPABASE_URL and SUPABASE_ANON_KEY to start the app.',
+                  style: TextStyle(fontSize: 15, color: Color(0xFF4B5563)),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 32),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE5E7EB)),
+                  ),
+                  child: const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('How to fix:',
+                          style: TextStyle(fontWeight: FontWeight.w700)),
+                      SizedBox(height: 8),
+                      Text('1. Go to your Supabase Dashboard',
+                          style: TextStyle(fontSize: 13)),
+                      Text('2. Copy Project URL and Anon Key',
+                          style: TextStyle(fontSize: 13)),
+                      Text('3. Add them to your build settings or code',
+                          style: TextStyle(fontSize: 13)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class MyApp extends StatefulWidget {
