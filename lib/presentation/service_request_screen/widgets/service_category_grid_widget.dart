@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../theme/app_theme.dart';
-import '../../../services/localization_service.dart';
 
 class ServiceCategoryGridWidget extends StatelessWidget {
   final List<Map<String, dynamic>> categories;
@@ -17,37 +16,6 @@ class ServiceCategoryGridWidget extends StatelessWidget {
     this.crossAxisCount = 2,
   });
 
-  IconData _iconFromString(String name) {
-    switch (name) {
-      case 'local_shipping':
-        return Icons.local_shipping_rounded;
-      case 'tire_repair':
-        return Icons.tire_repair_rounded;
-      case 'lock_open':
-        return Icons.lock_open_rounded;
-      case 'local_gas_station':
-        return Icons.local_gas_station_rounded;
-      case 'bolt':
-        return Icons.bolt_rounded;
-      case 'battery_alert':
-        return Icons.battery_alert_rounded;
-      default:
-        return Icons.build_rounded;
-    }
-  }
-
-  String _getLabel(Map<String, dynamic> cat) {
-    final l = LocalizationService.instance;
-    final translations = cat['translations'] as Map?;
-    if (translations != null) {
-      return l.translateContent(
-        translations.map((k, v) => MapEntry(k.toString(), v.toString())),
-        fallbackText: cat['label'] as String? ?? '',
-      );
-    }
-    return cat['label'] as String? ?? '';
-  }
-
   @override
   Widget build(BuildContext context) {
     return GridView.builder(
@@ -62,15 +30,15 @@ class ServiceCategoryGridWidget extends StatelessWidget {
       itemCount: categories.length,
       itemBuilder: (context, index) {
         final cat = categories[index];
-        final isSelected = selectedId == cat['id'];
+        final id = cat['id'].toString();
+        final isSelected = selectedId == id;
+        
         return _CategoryTile(
-          id: cat['id'] as String,
-          label: _getLabel(cat),
-          icon: _iconFromString(cat['icon'] as String),
-          description: cat['description'] as String,
-          avgTime: cat['avgTime'] as String,
+          id: id,
+          label: cat['label'] ?? '',
+          iconEmoji: cat['icon'] ?? '🔧',
           isSelected: isSelected,
-          onTap: () => onSelected(cat['id'] as String),
+          onTap: () => onSelected(id),
           animationDelay: Duration(milliseconds: 60 * index),
         );
       },
@@ -81,9 +49,7 @@ class ServiceCategoryGridWidget extends StatelessWidget {
 class _CategoryTile extends StatefulWidget {
   final String id;
   final String label;
-  final IconData icon;
-  final String description;
-  final String avgTime;
+  final String iconEmoji;
   final bool isSelected;
   final VoidCallback onTap;
   final Duration animationDelay;
@@ -91,9 +57,7 @@ class _CategoryTile extends StatefulWidget {
   const _CategoryTile({
     required this.id,
     required this.label,
-    required this.icon,
-    required this.description,
-    required this.avgTime,
+    required this.iconEmoji,
     required this.isSelected,
     required this.onTap,
     required this.animationDelay,
@@ -197,12 +161,10 @@ class _CategoryTileState extends State<_CategoryTile>
                             : AppTheme.primaryContainer,
                         borderRadius: BorderRadius.circular(9),
                       ),
-                      child: Icon(
-                        widget.icon,
-                        size: 20,
-                        color: widget.isSelected
-                            ? Colors.white
-                            : AppTheme.primary,
+                      alignment: Alignment.center,
+                      child: Text(
+                        widget.iconEmoji,
+                        style: const TextStyle(fontSize: 20),
                       ),
                     ),
                     const Spacer(),
@@ -224,17 +186,8 @@ class _CategoryTileState extends State<_CategoryTile>
                         ? Colors.white
                         : AppTheme.onSurface,
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  widget.avgTime,
-                  style: GoogleFonts.manrope(
-                    fontSize: 11,
-                    color: widget.isSelected
-                        ? Colors.white.withAlpha(204)
-                        : AppTheme.muted,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),

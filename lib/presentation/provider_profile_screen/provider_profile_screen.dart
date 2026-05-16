@@ -780,9 +780,16 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
             l.t('subscription_plans'),
             AppTheme.primary,
             () =>
-                Navigator.pushNamed(context, AppRoutes.subscriptionPlansScreen),
+                Navigator.pushReplacementNamed(context, AppRoutes.jobRequestsScreen),
           ),
           const Divider(height: 1, color: AppTheme.outlineVariant),
+          _buildActionRow(
+            Icons.build_circle_outlined,
+            l.t('my_services_pricing'),
+            AppTheme.primary,
+            () =>
+                Navigator.pushReplacementNamed(context, AppRoutes.jobRequestsScreen),
+          ),
           _buildActionRow(
             Icons.help_outline_rounded,
             l.t('faq'),
