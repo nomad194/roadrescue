@@ -106,7 +106,7 @@ class CustomImageWidget extends StatelessWidget {
   }
 
   Widget _buildImageView() {
-    if (imageUrl != null) {
+    if (imageUrl != null && imageUrl!.isNotEmpty) {
       switch (imageUrl!.imageType) {
         case ImageType.svg:
           return SizedBox(

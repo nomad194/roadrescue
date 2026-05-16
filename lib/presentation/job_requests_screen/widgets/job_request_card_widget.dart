@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../theme/app_theme.dart';
 import '../../../widgets/custom_image_widget.dart';
 import '../../../services/supabase_service.dart';
@@ -59,6 +60,26 @@ class JobRequestCardWidget extends StatefulWidget {
 class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
   bool _isExpanded = false;
   bool _markingEnRoute = false;
+  String _distanceUnit = 'mi';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUnit();
+  }
+
+  Future<void> _loadUnit() async {
+    try {
+      final res = await Supabase.instance.client
+          .from('app_settings')
+          .select('setting_value')
+          .eq('setting_key', 'distance_unit')
+          .maybeSingle();
+      if (res != null && mounted) {
+        setState(() => _distanceUnit = res['setting_value'] ?? 'mi');
+      }
+    } catch (_) {}
+  }
 
   IconData _iconFromString(String name) {
     switch (name) {
@@ -382,7 +403,7 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
                             ),
                           ),
                           Text(
-                            l.t('miles'),
+                            _distanceUnit,
                             style: GoogleFonts.manrope(
                               fontSize: 10,
                               color: AppTheme.muted,

@@ -28,7 +28,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
   final _businessImageController = TextEditingController(
     text: 'https://images.pexels.com/photos/3807386/pexels-photo-3807386.jpeg',
   );
-  final _serviceRangeController = TextEditingController(text: '25');
   final _addressController = TextEditingController(text: 'Austin, TX 78701');
 
   @override
@@ -38,7 +37,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
     _phoneController.dispose();
     _businessNameController.dispose();
     _businessImageController.dispose();
-    _serviceRangeController.dispose();
     _addressController.dispose();
     super.dispose();
   }
@@ -179,8 +177,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
             _buildBusinessCard(l),
             const SizedBox(height: 16),
             _buildPersonalInfoCard(l),
-            const SizedBox(height: 16),
-            _buildServiceRangeCard(l),
             const SizedBox(height: 16),
             _buildStatsCard(l),
             const SizedBox(height: 16),
@@ -478,120 +474,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
             enabled: _isEditing,
             isLast: true,
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildServiceRangeCard(LocalizationService l) {
-    final rangeValue = double.tryParse(_serviceRangeController.text) ?? 25.0;
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.radar, size: 20, color: AppTheme.primary),
-              const SizedBox(width: 8),
-              Text(
-                l.t('service_range'),
-                style: GoogleFonts.manrope(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.onSurface,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${rangeValue.toInt()} ${l.t('miles_radius')}',
-                      style: GoogleFonts.manrope(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.primary,
-                      ),
-                    ),
-                    Text(
-                      l.t('from_base_location'),
-                      style: GoogleFonts.manrope(
-                        fontSize: 12,
-                        color: AppTheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(
-                  Icons.my_location,
-                  size: 28,
-                  color: AppTheme.primary,
-                ),
-              ),
-            ],
-          ),
-          if (_isEditing) ...[
-            const SizedBox(height: 14),
-            Text(
-              l.t('adjust_range'),
-              style: GoogleFonts.manrope(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Text(
-                  '5 mi',
-                  style: GoogleFonts.manrope(
-                    fontSize: 11,
-                    color: AppTheme.muted,
-                  ),
-                ),
-                Expanded(
-                  child: Slider(
-                    value: rangeValue.clamp(5, 100),
-                    min: 5,
-                    max: 100,
-                    divisions: 19,
-                    activeColor: AppTheme.primary,
-                    inactiveColor: AppTheme.outlineVariant,
-                    onChanged: (v) => setState(
-                      () => _serviceRangeController.text = v.toInt().toString(),
-                    ),
-                  ),
-                ),
-                Text(
-                  '100 mi',
-                  style: GoogleFonts.manrope(
-                    fontSize: 11,
-                    color: AppTheme.muted,
-                  ),
-                ),
-              ],
-            ),
-          ],
         ],
       ),
     );

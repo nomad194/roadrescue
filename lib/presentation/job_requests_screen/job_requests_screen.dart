@@ -45,6 +45,11 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   Color _dynamicCurrentPlanColor = Colors.blue;
   bool _isSubscribing = false;
 
+  // Range State
+  String _distanceUnit = 'mi';
+  double _serviceRange = 25.0;
+  bool _isSavingRange = false;
+
   List<_JobRequest> get _filteredJobs {
     return _jobs.where((job) {
       final matchesStatus =
@@ -71,6 +76,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
       _loadSubscription(),
       _loadPlans(),
       _loadProviderServices(),
+      _loadProviderRange(),
     ]);
   }
 
@@ -183,22 +189,25 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
           .eq('is_active', true)
           .order('price_monthly', ascending: true);
       
-      // Also fetch dynamic highlight color
-      final colorRes = await Supabase.instance.client
+      // Also fetch dynamic highlight color & unit
+      final settingsRes = await Supabase.instance.client
           .from('app_settings')
-          .select('setting_value')
-          .eq('setting_key', 'current_plan_highlight_color')
-          .maybeSingle();
+          .select('setting_key, setting_value')
+          .inFilter('setting_key', ['current_plan_highlight_color', 'distance_unit']);
 
       if (mounted) {
         setState(() {
           _availablePlans = List<Map<String, dynamic>>.from(response);
           
-          if (colorRes != null) {
-            try {
-              final hex = (colorRes['setting_value'] as String).replaceFirst('#', '');
-              _dynamicCurrentPlanColor = Color(int.parse('FF$hex', radix: 16));
-            } catch (_) {}
+          for (final row in settingsRes) {
+            if (row['setting_key'] == 'current_plan_highlight_color') {
+              try {
+                final hex = (row['setting_value'] as String).replaceFirst('#', '');
+                _dynamicCurrentPlanColor = Color(int.parse('FF$hex', radix: 16));
+              } catch (_) {}
+            } else if (row['setting_key'] == 'distance_unit') {
+              _distanceUnit = row['setting_value'] ?? 'mi';
+            }
           }
 
           _isLoadingPlans = false;
@@ -206,6 +215,52 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
       }
     } catch (_) {
       if (mounted) setState(() => _isLoadingPlans = false);
+    }
+  }
+
+  Future<void> _loadProviderRange() async {
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) return;
+    try {
+      final res = await Supabase.instance.client
+          .from('user_profiles')
+          .select('service_radius')
+          .eq('id', userId)
+          .maybeSingle();
+      if (res != null && mounted) {
+        setState(() => _serviceRange = (res['service_radius'] as num?)?.toDouble() ?? 25.0);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveServiceRange(double value) async {
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) return;
+
+    setState(() => _isSavingRange = true);
+    try {
+      await Supabase.instance.client
+          .from('user_profiles')
+          .update({'service_radius': value})
+          .eq('id', userId);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Service range updated successfully'),
+            backgroundColor: AppTheme.success,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to update range'), backgroundColor: AppTheme.error),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSavingRange = false);
     }
   }
 
@@ -249,9 +304,9 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
       status: mappedStatus,
       estimatedValue: (data['quoted_price'] as num?)?.toDouble() ?? 0.0,
       quoteSent: data['quoted_price'] != null,
-      driverImageUrl:
-          customer?['avatar_url'] as String? ??
-          'https://images.pexels.com/photos/1222271/pexels-photo-1222271.jpeg',
+      driverImageUrl: (customer?['avatar_url'] as String? ?? '').isNotEmpty
+          ? customer!['avatar_url']
+          : 'https://images.pexels.com/photos/1222271/pexels-photo-1222271.jpeg',
       driverImageSemanticLabel: 'Customer profile photo',
     );
   }
@@ -297,7 +352,9 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
           (record['quoted_price'] as num?)?.toDouble() ??
           existing.estimatedValue,
       quoteSent: record['quoted_price'] != null,
-      driverImageUrl: existing.driverImageUrl,
+      driverImageUrl: (record['avatar_url'] as String? ?? '').isNotEmpty
+          ? record['avatar_url']
+          : existing.driverImageUrl,
       driverImageSemanticLabel: existing.driverImageSemanticLabel,
     );
   }
@@ -540,17 +597,22 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     if (userId == null) return;
 
     setState(() => _isSubscribing = true);
-    final l = LocalizationService.instance;
     try {
-      // Upsert into provider_subscriptions
+      final planId = plan['id'];
+      debugPrint('Attempting subscription for user $userId to plan $planId');
+
+      // 1. Simple Upsert (minimal fields to avoid validation errors)
       await Supabase.instance.client.from('provider_subscriptions').upsert({
         'provider_id': userId,
-        'plan_id': plan['id'],
+        'plan_id': planId,
         'status': 'active',
-        'current_period_start': DateTime.now().toIso8601String(),
-        'current_period_end': DateTime.now().add(const Duration(days: 30)).toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
       }, onConflict: 'provider_id');
+
+      debugPrint('Subscription database write successful');
+
+      // 2. Reload all data to apply new restrictions and refresh highlight
+      await _initData();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -562,18 +624,31 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
           ),
         );
       }
-
-      // Reload all data to apply new restrictions
-      await _initData();
     } catch (e) {
-      debugPrint('Subscribe error: $e');
+      debugPrint('Detailed Subscribe Error: $e');
       if (mounted) {
+        // Show the actual technical error to help identify the DB issue
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(l.t('generic_error')),
+            content: Text('Error: ${e.toString()}'),
             backgroundColor: AppTheme.error,
             behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 5),
             margin: const EdgeInsets.all(16),
+            action: SnackBarAction(
+              label: 'Details',
+              textColor: Colors.white,
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Debug Info'),
+                    content: SingleChildScrollView(child: Text(e.toString())),
+                    actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
+                  ),
+                );
+              },
+            ),
           ),
         );
       }
@@ -799,6 +874,8 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
+          _buildRangeCard(l),
+          const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -870,6 +947,91 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
             }).toList()),
             const SizedBox(height: 80),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRangeCard(LocalizationService l) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.radar, size: 20, color: AppTheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                l.t('service_range'),
+                style: GoogleFonts.manrope(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.onSurface,
+                ),
+              ),
+              const Spacer(),
+              if (_isSavingRange)
+                const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${_serviceRange.toInt()} $_distanceUnit',
+                      style: GoogleFonts.manrope(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.primary,
+                      ),
+                    ),
+                    Text(
+                      l.t('from_base_location'),
+                      style: GoogleFonts.manrope(
+                        fontSize: 12,
+                        color: AppTheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.my_location, size: 22, color: AppTheme.primary),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Slider(
+            value: _serviceRange.clamp(5, 200),
+            min: 5,
+            max: 200,
+            divisions: 39,
+            activeColor: AppTheme.primary,
+            onChanged: (v) => setState(() => _serviceRange = v),
+            onChangeEnd: _saveServiceRange,
+          ),
+          Center(
+            child: Text(
+              'Drag to adjust your operational radius',
+              style: GoogleFonts.manrope(fontSize: 11, color: AppTheme.muted),
+            ),
+          ),
         ],
       ),
     );
@@ -1209,7 +1371,13 @@ class _PricingEditorSheet extends StatefulWidget {
   final bool canUseAfterHours;
   final void Function(_ServicePricing) onSave;
 
-  const _PricingEditorSheet({required this.service, required this.pricing, required this.canSetDistance, required this.canUseAfterHours, required this.onSave});
+  const _PricingEditorSheet({
+    required this.service,
+    required this.pricing,
+    required this.canSetDistance,
+    required this.canUseAfterHours,
+    required this.onSave,
+  });
 
   @override
   State<_PricingEditorSheet> createState() => _PricingEditorSheetState();
@@ -1223,27 +1391,320 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
   @override
   void initState() {
     super.initState();
-    _basePriceCtrl = TextEditingController(text: widget.pricing.basePrice > 0 ? widget.pricing.basePrice.toStringAsFixed(0) : '');
+    _basePriceCtrl = TextEditingController(
+      text: widget.pricing.basePrice > 0
+          ? widget.pricing.basePrice.toStringAsFixed(0)
+          : '',
+    );
     _distanceRules = List.from(widget.pricing.distanceRules);
     _timeSurcharges = List.from(widget.pricing.timeSurcharges);
   }
 
   @override
+  void dispose() {
+    _basePriceCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final l = LocalizationService.instance;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final String serviceName = l.translateContent(
+      widget.service['name_translations'] as Map<String, dynamic>? ?? {},
+      fallbackText: widget.service['name'] as String? ?? '',
+    );
+
     return Container(
-      decoration: const BoxDecoration(color: AppTheme.surface, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      decoration: const BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       padding: EdgeInsets.fromLTRB(20, 8, 20, 20 + bottomInset),
       child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(margin: const EdgeInsets.symmetric(vertical: 12), width: 40, height: 4, decoration: BoxDecoration(color: AppTheme.outline, borderRadius: BorderRadius.circular(2))),
-            TextField(controller: _basePriceCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Base Price (\$)', hintText: '85')),
+            Center(
+              child: Container(
+                margin: const EdgeInsets.symmetric(vertical: 12),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppTheme.outline,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Text(
+              '${l.t('pricing')} - $serviceName',
+              style: GoogleFonts.manrope(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.onSurface,
+              ),
+            ),
             const SizedBox(height: 20),
+            _buildBasePriceField(),
+            const SizedBox(height: 20),
+            if (widget.canSetDistance) _buildDistanceSection(l),
+            if (widget.canUseAfterHours) _buildAfterHoursSection(l),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => widget.onSave(_ServicePricing(
+                  basePrice: double.tryParse(_basePriceCtrl.text) ?? 0,
+                  distanceRules: _distanceRules,
+                  timeSurcharges: _timeSurcharges,
+                )),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: Text(
+                  l.t('save'),
+                  style: GoogleFonts.manrope(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBasePriceField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Base Service Price',
+          style: GoogleFonts.manrope(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.onSurface,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _basePriceCtrl,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(
+            prefixText: '\$ ',
+            hintText: 'e.g. 85',
+            filled: true,
+            fillColor: AppTheme.surfaceVariant.withAlpha(50),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: AppTheme.outline),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDistanceSection(LocalizationService l) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(height: 32),
+        Row(
+          children: [
+            const Icon(Icons.add_road_outlined, size: 18, color: AppTheme.primary),
+            const SizedBox(width: 8),
+            Text(
+              'Distance Surcharges',
+              style: GoogleFonts.manrope(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ..._distanceRules.map((rule) => _buildDistanceRuleTile(rule)),
+        TextButton.icon(
+          onPressed: _addDistanceRule,
+          icon: const Icon(Icons.add, size: 16),
+          label: const Text('Add distance rule'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDistanceRuleTile(_DistanceRule rule) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceVariant.withAlpha(30),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              '${rule.fromMiles.toInt()} - ${rule.toMiles?.toInt() ?? '+'} miles: \$${rule.extraFee.toStringAsFixed(0)} fee',
+              style: const TextStyle(fontSize: 13),
+            ),
+          ),
+          IconButton(
+            onPressed: () => setState(() => _distanceRules.remove(rule)),
+            icon: const Icon(Icons.remove_circle_outline, size: 18, color: AppTheme.error),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAfterHoursSection(LocalizationService l) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(height: 32),
+        Row(
+          children: [
+            const Icon(Icons.nights_stay_outlined, size: 18, color: AppTheme.primary),
+            const SizedBox(width: 8),
+            Text(
+              'After-Hours Rates',
+              style: GoogleFonts.manrope(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ..._timeSurcharges.map((s) => _buildTimeSurchargeTile(s)),
+        TextButton.icon(
+          onPressed: _addTimeSurcharge,
+          icon: const Icon(Icons.add, size: 16),
+          label: const Text('Add time rule'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTimeSurchargeTile(_TimeSurcharge s) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceVariant.withAlpha(30),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(s.label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                Text(
+                  '${s.startHour}:00 - ${s.endHour}:00: ${s.amount}${s.isPercent ? '%' : '\$'} extra',
+                  style: const TextStyle(fontSize: 12, color: AppTheme.muted),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: () => setState(() => _timeSurcharges.remove(s)),
+            icon: const Icon(Icons.remove_circle_outline, size: 18, color: AppTheme.error),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _addDistanceRule() {
+    final fromCtrl = TextEditingController();
+    final toCtrl = TextEditingController();
+    final feeCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('New Distance Rule'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: fromCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'From Miles')),
+            TextField(controller: toCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'To Miles (Empty for +)')),
+            TextField(controller: feeCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Extra Fee (\$)')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () {
+              final from = double.tryParse(fromCtrl.text) ?? 0;
+              final to = double.tryParse(toCtrl.text);
+              final fee = double.tryParse(feeCtrl.text) ?? 0;
+              setState(() => _distanceRules.add(_DistanceRule(fromMiles: from, toMiles: to, extraFee: fee)));
+              Navigator.pop(ctx);
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _addTimeSurcharge() {
+    final labelCtrl = TextEditingController();
+    final startCtrl = TextEditingController();
+    final endCtrl = TextEditingController();
+    final amountCtrl = TextEditingController();
+    bool isPercent = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('New Time Rule'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: labelCtrl, decoration: const InputDecoration(labelText: 'Label (e.g. Night Shift)')),
+              TextField(controller: startCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Start Hour (0-23)')),
+              TextField(controller: endCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'End Hour (0-23)')),
+              TextField(controller: amountCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Extra Amount')),
+              Row(
+                children: [
+                  const Text('Percentage?'),
+                  const Spacer(),
+                  Switch(value: isPercent, onChanged: (v) => setDialogState(() => isPercent = v)),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
             ElevatedButton(
-              onPressed: () => widget.onSave(_ServicePricing(basePrice: double.tryParse(_basePriceCtrl.text) ?? 0, distanceRules: _distanceRules, timeSurcharges: _timeSurcharges)),
-              child: const Text('Save Pricing'),
+              onPressed: () {
+                setState(() => _timeSurcharges.add(_TimeSurcharge(
+                  label: labelCtrl.text,
+                  startHour: int.tryParse(startCtrl.text) ?? 0,
+                  endHour: int.tryParse(endCtrl.text) ?? 0,
+                  amount: double.tryParse(amountCtrl.text) ?? 0,
+                  isPercent: isPercent,
+                )));
+                Navigator.pop(ctx);
+              },
+              child: const Text('Add'),
             ),
           ],
         ),

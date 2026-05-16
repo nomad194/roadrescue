@@ -39,6 +39,7 @@ class _AdminAppConfigWidgetState extends State<AdminAppConfigWidget>
   final _supportPhoneController = TextEditingController(
     text: '+1 (800) 555-0100',
   );
+  String _distanceUnit = 'mi';
 
   // API Keys
   final _googleMapsKeyController = TextEditingController();
@@ -259,6 +260,7 @@ class _AdminAppConfigWidgetState extends State<AdminAppConfigWidget>
           if (settings.containsKey('app_tagline')) _appTaglineController.text = settings['app_tagline']!;
           if (settings.containsKey('support_email')) _supportEmailController.text = settings['support_email']!;
           if (settings.containsKey('support_phone')) _supportPhoneController.text = settings['support_phone']!;
+          if (settings.containsKey('distance_unit')) _distanceUnit = settings['distance_unit']!;
           
           if (settings.containsKey('google_maps_key')) _googleMapsKeyController.text = settings['google_maps_key']!;
           if (settings.containsKey('stripe_publishable_key')) _stripeKeyController.text = settings['stripe_publishable_key']!;
@@ -329,6 +331,11 @@ class _AdminAppConfigWidgetState extends State<AdminAppConfigWidget>
         {
           'setting_key': 'support_phone',
           'setting_value': _supportPhoneController.text.trim(),
+          'setting_type': 'text',
+        },
+        {
+          'setting_key': 'distance_unit',
+          'setting_value': _distanceUnit,
           'setting_type': 'text',
         },
         {
@@ -598,12 +605,62 @@ class _AdminAppConfigWidgetState extends State<AdminAppConfigWidget>
     return _buildSectionCard(
       title: l.t('general_settings'),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildTextField('App Name', _appNameController),
           _buildTextField('App Tagline', _appTaglineController),
           _buildTextField('Support Email', _supportEmailController),
           _buildTextField('Support Phone', _supportPhoneController),
+          const SizedBox(height: 8),
+          Text(
+            'Distance Unit',
+            style: GoogleFonts.manrope(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: AppTheme.surfaceVariant,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                _buildUnitToggle('mi', 'Miles (MI)'),
+                _buildUnitToggle('km', 'Kilometers (KM)'),
+              ],
+            ),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildUnitToggle(String value, String label) {
+    final isSelected = _distanceUnit == value;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _distanceUnit = value),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected ? AppTheme.primary : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.manrope(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: isSelected ? Colors.white : AppTheme.onSurfaceVariant,
+            ),
+          ),
+        ),
       ),
     );
   }

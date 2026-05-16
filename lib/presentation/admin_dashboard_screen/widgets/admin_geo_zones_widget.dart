@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../theme/app_theme.dart';
 import '../../../services/localization_service.dart';
 
@@ -11,12 +12,13 @@ class AdminGeoZonesWidget extends StatefulWidget {
 }
 
 class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
+  String _distanceUnit = 'mi';
   final List<Map<String, dynamic>> _zones = [
     {
       'id': 1,
       'name': 'Downtown Metro',
       'timezone': 'America/New_York',
-      'radius': '15 km',
+      'radius': '15',
       'active': true,
       'providers': 32,
     },
@@ -24,7 +26,7 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
       'id': 2,
       'name': 'West Side',
       'timezone': 'America/Chicago',
-      'radius': '20 km',
+      'radius': '20',
       'active': true,
       'providers': 18,
     },
@@ -32,7 +34,7 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
       'id': 3,
       'name': 'North Suburbs',
       'timezone': 'America/Los_Angeles',
-      'radius': '25 km',
+      'radius': '25',
       'active': false,
       'providers': 11,
     },
@@ -40,11 +42,30 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
       'id': 4,
       'name': 'Airport Zone',
       'timezone': 'America/Denver',
-      'radius': '10 km',
+      'radius': '10',
       'active': true,
       'providers': 8,
     },
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUnit();
+  }
+
+  Future<void> _loadUnit() async {
+    try {
+      final res = await Supabase.instance.client
+          .from('app_settings')
+          .select('setting_value')
+          .eq('setting_key', 'distance_unit')
+          .maybeSingle();
+      if (res != null && mounted) {
+        setState(() => _distanceUnit = res['setting_value'] ?? 'mi');
+      }
+    } catch (_) {}
+  }
 
   final List<String> _timezones = [
     'America/New_York',
@@ -66,7 +87,7 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
     final l = LocalizationService.instance;
     final nameController = TextEditingController(text: zone?['name'] ?? '');
     final radiusController = TextEditingController(
-      text: zone?['radius']?.replaceAll(' km', '') ?? '',
+      text: zone?['radius'] ?? '',
     );
     String selectedTz = zone?['timezone'] ?? _timezones.first;
     bool isActive = zone?['active'] ?? true;
@@ -124,9 +145,9 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
                   controller: radiusController,
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(
-                    labelText: 'Radius (km)',
+                    labelText: 'Radius ($_distanceUnit)',
                     hintText: 'e.g. 15',
-                    suffixText: 'km',
+                    suffixText: _distanceUnit,
                     filled: true,
                     fillColor: AppTheme.surfaceVariant,
                     border: OutlineInputBorder(
@@ -231,7 +252,7 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
                       'name': nameController.text.trim(),
                       'timezone': selectedTz,
                       'radius':
-                          '${radiusController.text.trim().isEmpty ? '10' : radiusController.text.trim()} km',
+                          radiusController.text.trim().isEmpty ? '10' : radiusController.text.trim(),
                       'active': isActive,
                       'providers': 0,
                     });
@@ -243,7 +264,7 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
                         'name': nameController.text.trim(),
                         'timezone': selectedTz,
                         'radius':
-                            '${radiusController.text.trim().isEmpty ? zone['radius'].replaceAll(' km', '') : radiusController.text.trim()} km',
+                            radiusController.text.trim().isEmpty ? zone['radius'] : radiusController.text.trim(),
                         'active': isActive,
                       };
                     }
@@ -376,7 +397,7 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
                               ),
                             ),
                             Text(
-                              '${zone['providers']} providers · ${zone['radius']}',
+                              '${zone['providers']} providers · ${zone['radius']} $_distanceUnit',
                               style: GoogleFonts.manrope(
                                 fontSize: 12,
                                 color: AppTheme.onSurfaceVariant,
