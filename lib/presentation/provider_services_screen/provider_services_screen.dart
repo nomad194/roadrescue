@@ -40,7 +40,43 @@ class _ProviderServicesScreenState extends State<ProviderServicesScreen>
     await Future.wait([
       _loadCategories(),
       _loadSubscription(),
+      _loadProviderServices(),
     ]);
+  }
+
+  Future<void> _loadProviderServices() async {
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) return;
+
+    final configs = await SupabaseService.instance.getProviderServices(userId);
+    if (mounted) {
+      setState(() {
+        for (final config in configs) {
+          final id = config['category_id'].toString();
+          _enabledServices.add(id);
+          
+          final distanceRules = (config['distance_rules'] as List?)?.map((r) => _DistanceRule(
+            fromMiles: (r['from'] as num).toDouble(),
+            toMiles: r['to'] != null ? (r['to'] as num).toDouble() : null,
+            extraFee: (r['fee'] as num).toDouble(),
+          )).toList() ?? [];
+
+          final timeSurcharges = (config['time_surcharges'] as List?)?.map((s) => _TimeSurcharge(
+            label: s['label'] ?? '',
+            startHour: s['start'] as int,
+            endHour: s['end'] as int,
+            amount: (s['amount'] as num).toDouble(),
+            isPercent: s['is_percent'] as bool,
+          )).toList() ?? [];
+
+          _pricingMap[id] = _ServicePricing(
+            basePrice: (config['base_price'] as num).toDouble(),
+            distanceRules: distanceRules,
+            timeSurcharges: timeSurcharges,
+          );
+        }
+      });
+    }
   }
 
   Future<void> _loadCategories() async {
@@ -68,7 +104,18 @@ class _ProviderServicesScreenState extends State<ProviderServicesScreen>
     final sub = await SupabaseService.instance.getActiveSubscription(userId);
     if (mounted) {
       setState(() {
-        _activeSubscription = sub;
+        if (sub != null) {
+          _activeSubscription = sub;
+        } else {
+          // Default fallback for enforcement if no sub record exists
+          _activeSubscription = {
+            'plan': {
+              'max_categories': 1,
+              'can_set_distance_surcharges': false,
+              'can_use_after_hours': false,
+            }
+          };
+        }
       });
     }
   }
@@ -79,7 +126,12 @@ class _ProviderServicesScreenState extends State<ProviderServicesScreen>
       final plan = _activeSubscription?['plan'] as Map<String, dynamic>?;
       if (plan != null) {
         final maxCategories = plan['max_categories'] as int? ?? 1;
-        if (maxCategories > 0 && _enabledServices.length >= maxCategories) {
+        
+        // Count how many distinct categories are already enabled
+        // In the current dynamic DB system, one service == one category
+        final activeCategoriesCount = _enabledServices.length;
+
+        if (maxCategories > 0 && activeCategoriesCount >= maxCategories) {
           _showLimitReached('categories', maxCategories);
           return;
         }
@@ -176,22 +228,70 @@ class _ProviderServicesScreenState extends State<ProviderServicesScreen>
     );
   }
 
-  void _saveAll() {
+  bool _isSaving = false;
+
+  void _saveAll() async {
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) return;
+
+    setState(() => _isSaving = true);
     final l = LocalizationService.instance;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          l.t('all_saved_success'),
-          style: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600),
-        ),
-        backgroundColor: AppTheme.success,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),
-        duration: const Duration(seconds: 3),
-      ),
-    );
-    Navigator.pop(context);
+
+    try {
+      final List<Map<String, dynamic>> servicesToSave = [];
+
+      for (final id in _enabledServices) {
+        final pricing = _pricingMap[id]!;
+        servicesToSave.add({
+          'category_id': int.tryParse(id),
+          'base_price': pricing.basePrice,
+          'distance_rules': pricing.distanceRules.map((r) => {
+            'from': r.fromMiles,
+            'to': r.toMiles,
+            'fee': r.extraFee,
+          }).toList(),
+          'time_surcharges': pricing.timeSurcharges.map((s) => {
+            'label': s.label,
+            'start': s.startHour,
+            'end': s.endHour,
+            'amount': s.amount,
+            'is_percent': s.isPercent,
+          }).toList(),
+        });
+      }
+
+      await SupabaseService.instance.saveProviderServices(userId, servicesToSave);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              l.t('all_saved_success'),
+              style: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            backgroundColor: AppTheme.success,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            margin: const EdgeInsets.all(16),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      debugPrint('Save provider services error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Failed to save services. Please try again.'),
+            backgroundColor: AppTheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
   }
 
   @override
@@ -230,7 +330,7 @@ class _ProviderServicesScreenState extends State<ProviderServicesScreen>
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: TextButton(
-              onPressed: _saveAll,
+              onPressed: _isSaving ? null : _saveAll,
               style: TextButton.styleFrom(
                 backgroundColor: AppTheme.primary,
                 foregroundColor: Colors.white,
@@ -242,13 +342,22 @@ class _ProviderServicesScreenState extends State<ProviderServicesScreen>
                   borderRadius: BorderRadius.circular(8),
                 ),
               ),
-              child: Text(
-                l.t('save_all'),
-                style: GoogleFonts.manrope(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              child: _isSaving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Text(
+                      l.t('save_all'),
+                      style: GoogleFonts.manrope(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
             ),
           ),
         ],
@@ -284,15 +393,47 @@ class _ProviderServicesScreenState extends State<ProviderServicesScreen>
       return const Center(child: CircularProgressIndicator());
     }
 
+    final plan = _activeSubscription?['plan'] as Map<String, dynamic>?;
+    final int maxCats = plan?['max_categories'] as int? ?? 1;
+    final String usageText = maxCats == 0 
+        ? 'Unlimited categories' 
+        : '${_enabledServices.length} / $maxCats categories used';
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SectionHeader(
-            icon: Icons.checklist_rounded,
-            title: l.t('choose_your_services'),
-            subtitle: 'Select all services you are able to provide',
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _SectionHeader(
+                  icon: Icons.checklist_rounded,
+                  title: l.t('choose_your_services'),
+                  subtitle: 'Select all services you are able to provide',
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: (_enabledServices.length >= maxCats && maxCats != 0)
+                      ? AppTheme.errorContainer
+                      : AppTheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  usageText,
+                  style: GoogleFonts.manrope(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: (_enabledServices.length >= maxCats && maxCats != 0)
+                        ? AppTheme.error
+                        : AppTheme.primary,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           if (_allServices.isEmpty)

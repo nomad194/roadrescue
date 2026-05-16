@@ -112,6 +112,38 @@ class SupabaseService {
     }
   }
 
+  // ─── PROVIDER SETTINGS ───────────────────────────────────────────────────
+
+  /// Fetch all configured services and pricing for a provider
+  Future<List<Map<String, dynamic>>> getProviderServices(String providerId) async {
+    try {
+      final response = await client
+          .from('provider_services')
+          .select()
+          .eq('provider_id', providerId);
+      return List<Map<String, dynamic>>.from(response);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Batch save all enabled services and their pricing
+  Future<void> saveProviderServices(String providerId, List<Map<String, dynamic>> services) async {
+    // 1. Delete existing for this provider
+    await client.from('provider_services').delete().eq('provider_id', providerId);
+    
+    // 2. Insert new ones
+    if (services.isNotEmpty) {
+      await client.from('provider_services').insert(
+        services.map((s) => {
+          ...s,
+          'provider_id': providerId,
+          'updated_at': DateTime.now().toIso8601String(),
+        }).toList()
+      );
+    }
+  }
+
   // ─── USER PROFILES ───────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>?> getUserProfile(String userId) async {

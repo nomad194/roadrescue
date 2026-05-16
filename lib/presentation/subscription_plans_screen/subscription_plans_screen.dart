@@ -5,6 +5,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme/app_theme.dart';
 import '../../services/localization_service.dart';
 
+import '../../services/supabase_service.dart';
+
 class SubscriptionPlansScreen extends StatefulWidget {
   const SubscriptionPlansScreen({super.key});
 
@@ -16,12 +18,30 @@ class SubscriptionPlansScreen extends StatefulWidget {
 class _SubscriptionPlansScreenState extends State<SubscriptionPlansScreen> {
   bool _isLoading = true;
   List<Map<String, dynamic>> _plans = [];
+  Map<String, dynamic>? _activeSubscription;
   String _billingCycle = 'monthly';
 
   @override
   void initState() {
     super.initState();
-    _loadPlans();
+    _initData();
+  }
+
+  Future<void> _initData() async {
+    await Future.wait([
+      _loadPlans(),
+      _loadActiveSubscription(),
+    ]);
+  }
+
+  Future<void> _loadActiveSubscription() async {
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) return;
+    
+    final sub = await SupabaseService.instance.getActiveSubscription(userId);
+    if (mounted) {
+      setState(() => _activeSubscription = sub);
+    }
   }
 
   Future<void> _loadPlans() async {
@@ -152,8 +172,13 @@ class _SubscriptionPlansScreenState extends State<SubscriptionPlansScreen> {
   ) {
     final String badgeText = plan['badge_text'] as String? ?? '';
     final bool isFeatured = plan['is_featured'] as bool? ?? false;
-    // Use popular flag or index
-    final isPopular = isFeatured || index == 1 || badgeText.isNotEmpty;
+    
+    // Check if this is the active plan
+    final bool isCurrentPlan = _activeSubscription != null && 
+                             _activeSubscription!['plan_id'] == plan['id'];
+
+    // Use popular flag, current status, or index
+    final isPopular = isFeatured || index == 1 || badgeText.isNotEmpty || isCurrentPlan;
 
     final priceMonthly = (plan['price_monthly'] as num?)?.toDouble() ?? 0;
     final priceYearly = (plan['price_yearly'] as num?)?.toDouble();
@@ -199,13 +224,15 @@ class _SubscriptionPlansScreenState extends State<SubscriptionPlansScreen> {
         color: AppTheme.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isPopular ? AppTheme.primary : AppTheme.outlineVariant,
-          width: isPopular ? 2 : 1,
+          color: isCurrentPlan 
+              ? Colors.blue 
+              : (isPopular ? AppTheme.primary : AppTheme.outlineVariant),
+          width: (isPopular || isCurrentPlan) ? 2 : 1,
         ),
-        boxShadow: isPopular
+        boxShadow: (isPopular || isCurrentPlan)
             ? [
                 BoxShadow(
-                  color: AppTheme.primary.withAlpha(30),
+                  color: (isCurrentPlan ? Colors.blue : AppTheme.primary).withAlpha(30),
                   blurRadius: 12,
                   offset: const Offset(0, 4),
                 ),
@@ -215,19 +242,21 @@ class _SubscriptionPlansScreenState extends State<SubscriptionPlansScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (isPopular)
+          if (isCurrentPlan || isPopular)
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 8),
               decoration: BoxDecoration(
-                color: AppTheme.primary,
+                color: isCurrentPlan ? Colors.blue : AppTheme.primary,
                 borderRadius: const BorderRadius.only(
                   topLeft: Radius.circular(14),
                   topRight: Radius.circular(14),
                 ),
               ),
               child: Text(
-                badgeText.isNotEmpty ? badgeText : l.t('most_popular'),
+                isCurrentPlan 
+                    ? l.t('current_plan') 
+                    : (badgeText.isNotEmpty ? badgeText : l.t('most_popular')),
                 textAlign: TextAlign.center,
                 style: GoogleFonts.manrope(
                   fontSize: 12,
@@ -393,16 +422,17 @@ class _SubscriptionPlansScreenState extends State<SubscriptionPlansScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: () =>
-                        _handleSubscribe(plan, purchaseMode, externalUrl),
+                    onPressed: isCurrentPlan 
+                        ? null 
+                        : () => _handleSubscribe(plan, purchaseMode, externalUrl),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: isPopular
-                          ? AppTheme.primary
-                          : AppTheme.surface,
-                      foregroundColor: isPopular
-                          ? Colors.white
-                          : AppTheme.primary,
-                      side: isPopular
+                      backgroundColor: isCurrentPlan
+                          ? Colors.blue.withAlpha(20)
+                          : (isPopular ? AppTheme.primary : AppTheme.surface),
+                      foregroundColor: isCurrentPlan
+                          ? Colors.blue
+                          : (isPopular ? Colors.white : AppTheme.primary),
+                      side: (isPopular || isCurrentPlan)
                           ? null
                           : const BorderSide(color: AppTheme.primary),
                       minimumSize: const Size(double.infinity, 46),
@@ -411,9 +441,11 @@ class _SubscriptionPlansScreenState extends State<SubscriptionPlansScreen> {
                       ),
                     ),
                     child: Text(
-                      trialDays > 0
-                          ? '${l.t('free_trial')} · ${l.t('subscribe')}'
-                          : l.t('subscribe'),
+                      isCurrentPlan
+                          ? l.t('current_plan')
+                          : (trialDays > 0
+                              ? '${l.t('free_trial')} · ${l.t('subscribe')}'
+                              : l.t('subscribe')),
                       style: GoogleFonts.manrope(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
