@@ -323,7 +323,6 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
                       style: GoogleFonts.manrope(
                         fontSize: 11,
                         color: AppTheme.muted,
-                        fontFeatures: const [FontFeature.tabularFigures()],
                       ),
                     ),
                   ],
@@ -552,6 +551,56 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
     );
   }
 
+  Widget _buildStatusBadge(LocalizationService l) {
+    Color color;
+    String label;
+
+    switch (widget.job.status) {
+      case 'quoted':
+        color = AppTheme.primary;
+        label = l.t('quoted').toUpperCase();
+        break;
+      case 'accepted':
+      case 'confirmed':
+        color = AppTheme.success;
+        label = l.t('active').toUpperCase();
+        break;
+      case 'en_route':
+        color = const Color(0xFF0891B2);
+        label = 'EN ROUTE';
+        break;
+      case 'completed':
+        color = AppTheme.success;
+        label = 'DONE';
+        break;
+      case 'cancelled':
+        color = AppTheme.error;
+        label = 'CANCELLED';
+        break;
+      default:
+        color = AppTheme.warning;
+        label = l.t('new_jobs').split(' ')[0].toUpperCase();
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withAlpha(26),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withAlpha(51)),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.manrope(
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          color: color,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+
   Widget _buildOnMyWayBanner(LocalizationService l) {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -659,59 +708,37 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
       ),
     );
   }
+}
 
-  Widget _buildStatusBadge(LocalizationService l) {
-    Color color;
-    Color bgColor;
-    String label;
+class _ActionButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
 
-    switch (widget.job.status) {
-      case 'new':
-        color = AppTheme.warning;
-        bgColor = AppTheme.warningContainer;
-        label = 'New Request';
-        break;
-      case 'quoted':
-        color = AppTheme.primary;
-        bgColor = AppTheme.primaryContainer;
-        label = l.t('quote_sent_notif');
-        break;
-      case 'accepted':
-      case 'confirmed':
-        color = AppTheme.success;
-        bgColor = AppTheme.successContainer;
-        label = l.t('booking_confirmed');
-        break;
-      case 'en_route':
-        color = const Color(0xFF0891B2);
-        bgColor = const Color(0xFF0891B2).withAlpha(25);
-        label = 'En Route';
-        break;
-      case 'completed':
-        color = AppTheme.muted;
-        bgColor = AppTheme.surfaceVariant;
-        label = l.t('done');
-        break;
-      default:
-        color = AppTheme.muted;
-        bgColor = AppTheme.surfaceVariant;
-        label = widget.job.status;
-    }
+  const _ActionButton({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
+  @override
+  Widget build(BuildContext context) {
+    return ElevatedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 14),
+      label: Text(
         label,
-        style: GoogleFonts.manrope(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: color,
-          letterSpacing: 0.1,
-        ),
+        style: GoogleFonts.manrope(fontSize: 11, fontWeight: FontWeight.w700),
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        minimumSize: const Size(0, 36),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        elevation: 0,
       ),
     );
   }
@@ -732,95 +759,30 @@ class _NavButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+        padding: const EdgeInsets.symmetric(vertical: 8),
         decoration: BoxDecoration(
           color: color.withAlpha(20),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withAlpha(80)),
+          border: Border.all(color: color.withAlpha(50)),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(icon, size: 14, color: color),
-            const SizedBox(width: 5),
+            const SizedBox(width: 6),
             Text(
               label,
               style: GoogleFonts.manrope(
-                fontSize: 12,
+                fontSize: 11,
                 fontWeight: FontWeight.w700,
                 color: color,
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ActionButton extends StatefulWidget {
-  final String label;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _ActionButton({
-    required this.label,
-    required this.icon,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  State<_ActionButton> createState() => _ActionButtonState();
-}
-
-class _ActionButtonState extends State<_ActionButton> {
-  double _scale = 1.0;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _scale = 0.95),
-      onTapUp: (_) {
-        setState(() => _scale = 1.0);
-        widget.onTap();
-      },
-      onTapCancel: () => setState(() => _scale = 1.0),
-      child: AnimatedScale(
-        scale: _scale,
-        duration: const Duration(milliseconds: 100),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: widget.color,
-            borderRadius: BorderRadius.circular(8),
-            boxShadow: [
-              BoxShadow(
-                color: widget.color.withAlpha(77),
-                blurRadius: 8,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(widget.icon, size: 14, color: Colors.white),
-              const SizedBox(width: 5),
-              Text(
-                widget.label,
-                style: GoogleFonts.manrope(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );

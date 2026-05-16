@@ -36,8 +36,6 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
 
   final _descriptionController = TextEditingController();
 
-  // Removed hardcoded _categoryMaps
-
   static const List<Map<String, dynamic>> _vehicleSizeOptions = [
     {'id': 'motorcycle', 'label': 'Motorcycle', 'emoji': '🏍️'},
     {'id': 'sedan', 'label': 'Sedan / Car', 'emoji': '🚗'},
@@ -265,8 +263,8 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
         _descriptionController.clear();
       });
 
-      _subscribeToRequest(data['id'] as String);
-      _showRequestSubmittedDialog(data['id'] as String);
+      _subscribeToRequest(data['id']?.toString() ?? '');
+      _showRequestSubmittedDialog(data['id']?.toString() ?? '');
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

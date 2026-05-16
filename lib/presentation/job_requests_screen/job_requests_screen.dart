@@ -224,11 +224,11 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     try {
       final res = await Supabase.instance.client
           .from('user_profiles')
-          .select('service_radius')
+          .select('service_range_miles')
           .eq('id', userId)
           .maybeSingle();
       if (res != null && mounted) {
-        setState(() => _serviceRange = (res['service_radius'] as num?)?.toDouble() ?? 25.0);
+        setState(() => _serviceRange = (res['service_range_miles'] as num?)?.toDouble() ?? 25.0);
       }
     } catch (_) {}
   }
@@ -241,7 +241,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     try {
       await Supabase.instance.client
           .from('user_profiles')
-          .update({'service_radius': value})
+          .update({'service_range_miles': value.toInt()})
           .eq('id', userId);
       
       if (mounted) {
@@ -834,6 +834,18 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   // ─── TABS ──────────────────────────────────────────────────────────────────
 
   Widget _buildJobRequestsTab(LocalizationService l) {
+    if (_isLoading) return const JobListSkeletonWidget();
+    
+    if (_filteredJobs.isEmpty) {
+      return EmptyStateWidget(
+        icon: Icons.work_off_outlined,
+        title: l.t('no_job_requests'),
+        description: l.t('new_jobs_info'),
+        ctaLabel: l.t('update_services'),
+        onCta: () => setState(() => _currentTabIndex = 1),
+      );
+    }
+
     return Column(
       children: [
         _StatusFilterBar(
@@ -841,21 +853,11 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
           onStatusChanged: _onStatusFilterChanged,
         ),
         Expanded(
-          child: _isLoading
-              ? const JobListSkeletonWidget()
-              : _filteredJobs.isEmpty
-              ? EmptyStateWidget(
-                  icon: Icons.work_off_outlined,
-                  title: l.t('no_job_requests'),
-                  description: l.t('new_jobs_info'),
-                  ctaLabel: l.t('update_services'),
-                  onCta: () => setState(() => _currentTabIndex = 1),
-                )
-              : RefreshIndicator(
-                  onRefresh: _loadJobs,
-                  color: AppTheme.primary,
-                  child: _buildJobList(),
-                ),
+          child: RefreshIndicator(
+            onRefresh: _loadJobs,
+            color: AppTheme.primary,
+            child: _buildJobList(),
+          ),
         ),
       ],
     );
@@ -1155,6 +1157,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
 
   Widget _buildJobList() {
     return ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
       itemCount: _filteredJobs.length,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
