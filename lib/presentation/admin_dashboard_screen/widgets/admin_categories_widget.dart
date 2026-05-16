@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../theme/app_theme.dart';
 import '../../../services/localization_service.dart';
 import '../../../widgets/multilingual_tabs_widget.dart';
@@ -12,105 +13,32 @@ class AdminCategoriesWidget extends StatefulWidget {
 }
 
 class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
-  final List<Map<String, dynamic>> _categories = [
-    {
-      'id': 1,
-      'translations': <String, String>{
-        'en': 'Towing',
-        'es': 'Remolque',
-        'fr': 'Remorquage',
-        'pt': 'Reboque',
-        'de': 'Abschleppen',
-        'ar': 'سحب السيارة',
-      },
-      'icon': '🚗',
-      'active': true,
-      'providers': 24,
-      'vehicleSizes': [
-        'motorcycle',
-        'sedan',
-        'suv',
-        'pickup',
-        'van',
-        'large_truck',
-      ],
-    },
-    {
-      'id': 2,
-      'translations': <String, String>{
-        'en': 'Flat Tire',
-        'es': 'Llanta Ponchada',
-        'fr': 'Pneu Crevé',
-        'pt': 'Pneu Furado',
-        'de': 'Reifenpanne',
-        'ar': 'إطار مثقوب',
-      },
-      'icon': '🔧',
-      'active': true,
-      'providers': 18,
-      'vehicleSizes': ['motorcycle', 'sedan', 'suv', 'pickup'],
-    },
-    {
-      'id': 3,
-      'translations': <String, String>{
-        'en': 'Lockout',
-        'es': 'Apertura de Vehículo',
-        'fr': 'Ouverture de Véhicule',
-        'pt': 'Abertura de Veículo',
-        'de': 'Fahrzeugöffnung',
-        'ar': 'فتح السيارة',
-      },
-      'icon': '🔑',
-      'active': true,
-      'providers': 15,
-      'vehicleSizes': ['sedan', 'suv', 'pickup', 'van'],
-    },
-    {
-      'id': 4,
-      'translations': <String, String>{
-        'en': 'Fuel Delivery',
-        'es': 'Entrega de Combustible',
-        'fr': 'Livraison de Carburant',
-        'pt': 'Entrega de Combustível',
-        'de': 'Kraftstofflieferung',
-        'ar': 'توصيل الوقود',
-      },
-      'icon': '⛽',
-      'active': true,
-      'providers': 12,
-      'vehicleSizes': ['motorcycle', 'sedan', 'suv', 'pickup', 'van'],
-    },
-    {
-      'id': 5,
-      'translations': <String, String>{
-        'en': 'Jump Start',
-        'es': 'Arranque de Batería',
-        'fr': 'Démarrage de Batterie',
-        'pt': 'Partida de Bateria',
-        'de': 'Starthilfe',
-        'ar': 'تشغيل البطارية',
-      },
-      'icon': '⚡',
-      'active': false,
-      'providers': 9,
-      'vehicleSizes': ['sedan', 'suv'],
-    },
-    {
-      'id': 6,
-      'translations': <String, String>{
-        'en': 'Battery Replace',
-        'es': 'Cambio de Batería',
-        'fr': 'Remplacement de Batterie',
-        'pt': 'Troca de Bateria',
-        'de': 'Batteriewechsel',
-        'ar': 'استبدال البطارية',
-      },
-      'icon': '🔋',
-      'active': true,
-      'providers': 7,
-      'vehicleSizes': ['sedan', 'suv', 'pickup'],
-    },
-  ];
+  List<Map<String, dynamic>> _categories = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCategories();
+  }
+
+  Future<void> _loadCategories() async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await Supabase.instance.client
+          .from('service_categories')
+          .select()
+          .order('id', ascending: true);
+      if (mounted) {
+        setState(() {
+          _categories = List<Map<String, dynamic>>.from(response);
+          _isLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   static const List<Map<String, dynamic>> _vehicleSizeOptions = [
     {
@@ -159,7 +87,8 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
 
   String _getCategoryName(Map<String, dynamic> category) {
     final l = LocalizationService.instance;
-    final translations = category['translations'] as Map<String, dynamic>? ?? {};
+    final translations =
+        category['name_translations'] as Map<String, dynamic>? ?? {};
     return l.translateContent(
       translations,
       fallbackText: category['name'] as String? ?? '',
@@ -169,7 +98,7 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
   void _showVehicleSizeDialog(Map<String, dynamic> category) {
     final l = LocalizationService.instance;
     final List<String> selected = List<String>.from(
-      category['vehicleSizes'] ?? [],
+      category['vehicle_sizes'] ?? [],
     );
     showDialog(
       context: context,
@@ -298,35 +227,46 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
               ),
             ),
             ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  final idx = _categories.indexWhere(
-                    (c) => c['id'] == category['id'],
-                  );
-                  if (idx != -1) {
-                    _categories[idx]['vehicleSizes'] = List<String>.from(
-                      selected,
+              onPressed: () async {
+                try {
+                  await Supabase.instance.client
+                      .from('service_categories')
+                      .update({'vehicle_sizes': selected})
+                      .eq('id', category['id']);
+                  
+                  if (mounted) {
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Vehicle sizes updated for ${_getCategoryName(category)}',
+                          style: GoogleFonts.manrope(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        backgroundColor: AppTheme.success,
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        margin: const EdgeInsets.all(16),
+                      ),
                     );
                   }
-                });
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Vehicle sizes updated for ${_getCategoryName(category)}',
-                      style: GoogleFonts.manrope(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
+                  await _loadCategories();
+                } catch (e) {
+                  debugPrint('Update vehicle sizes error: $e');
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Failed to update: $e'),
+                        backgroundColor: AppTheme.error,
+                        behavior: SnackBarBehavior.floating,
                       ),
-                    ),
-                    backgroundColor: AppTheme.success,
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    margin: const EdgeInsets.all(16),
-                  ),
-                );
+                    );
+                  }
+                }
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.primary,
@@ -349,13 +289,22 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
 
   void _showAddEditDialog({Map<String, dynamic>? category}) {
     final l = LocalizationService.instance;
-    Map<String, String> nameTranslations = category != null
-        ? Map<String, String>.from(
-            category['translations'] as Map<String, String>? ?? {},
-          )
-        : {};
-    final iconController = TextEditingController(text: category?['icon'] ?? '');
-    bool isActive = category?['active'] ?? true;
+    Map<String, String> nameTranslations = {};
+
+    if (category != null) {
+      final nameMap = category['name_translations'] as Map?;
+      if (nameMap != null) {
+        nameTranslations = nameMap.map(
+          (k, v) => MapEntry(k.toString(), v.toString()),
+        );
+      } else if ((category['name'] as String?)?.isNotEmpty == true) {
+        nameTranslations = {'en': category['name'] as String};
+      }
+    }
+
+    final iconController =
+        TextEditingController(text: category?['icon_emoji'] ?? '');
+    bool isActive = category?['is_active'] ?? true;
 
     showDialog(
       context: context,
@@ -472,40 +421,56 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
               ),
             ),
             ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
                 final hasName = nameTranslations.values.any(
                   (v) => v.isNotEmpty,
                 );
                 if (!hasName) return;
-                setState(() {
+
+                final primaryName = nameTranslations['en'] ?? nameTranslations.values.first;
+                final categoryData = {
+                  'name': primaryName,
+                  'name_translations': nameTranslations,
+                  'icon_emoji': iconController.text.trim().isEmpty
+                      ? (category?['icon_emoji'] ?? '🔧')
+                      : iconController.text.trim(),
+                  'is_active': isActive,
+                };
+
+                try {
                   if (category == null) {
-                    _categories.add({
-                      'id': _categories.length + 1,
-                      'translations': nameTranslations,
-                      'icon': iconController.text.trim().isEmpty
-                          ? '🔧'
-                          : iconController.text.trim(),
-                      'active': isActive,
-                      'providers': 0,
-                      'vehicleSizes': ['sedan', 'suv'],
-                    });
+                    await Supabase.instance.client
+                        .from('service_categories')
+                        .insert(categoryData);
                   } else {
-                    final idx = _categories.indexWhere(
-                      (c) => c['id'] == category['id'],
-                    );
-                    if (idx != -1) {
-                      _categories[idx] = {
-                        ...category,
-                        'translations': nameTranslations,
-                        'icon': iconController.text.trim().isEmpty
-                            ? category['icon']
-                            : iconController.text.trim(),
-                        'active': isActive,
-                      };
-                    }
+                    await Supabase.instance.client
+                        .from('service_categories')
+                        .update(categoryData)
+                        .eq('id', category['id']);
                   }
-                });
-                Navigator.pop(ctx);
+                  if (mounted) {
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Category saved!'),
+                        backgroundColor: AppTheme.success,
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                  await _loadCategories();
+                } catch (e) {
+                  debugPrint('Save category error: $e');
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error: $e'),
+                        backgroundColor: AppTheme.error,
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                }
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.primary,
@@ -557,9 +522,35 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
             ),
           ),
           ElevatedButton(
-            onPressed: () {
-              setState(() => _categories.removeWhere((c) => c['id'] == id));
-              Navigator.pop(ctx);
+            onPressed: () async {
+              try {
+                await Supabase.instance.client
+                    .from('service_categories')
+                    .delete()
+                    .eq('id', id);
+                if (mounted) {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Category deleted'),
+                      backgroundColor: AppTheme.error,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+                await _loadCategories();
+              } catch (e) {
+                debugPrint('Delete category error: $e');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error: $e'),
+                      backgroundColor: AppTheme.error,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppTheme.error,
@@ -613,7 +604,9 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
               onPressed: () => _showAddEditDialog(),
               icon: const Icon(Icons.add, size: 18),
               label: Text(
-                l.t('add_translation').split(' ')[0],
+                l.t('add_translation').contains(' ') 
+                  ? l.t('add_translation').split(' ')[0] + ' ' + l.t('categories').substring(0, l.t('categories').length - 1)
+                  : l.t('add_plan'),
                 style: GoogleFonts.manrope(
                   fontWeight: FontWeight.w600,
                   fontSize: 14,
@@ -635,106 +628,112 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
           ],
         ),
         const SizedBox(height: 16),
-        ListView.separated(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: _categories.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
-          itemBuilder: (context, index) {
-            final cat = _categories[index];
-            final vehicleSizes = (cat['vehicleSizes'] as List<dynamic>?) ?? [];
-            final displayName = _getCategoryName(cat);
-            return Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppTheme.surface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppTheme.outlineVariant),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: cat['active']
-                              ? AppTheme.primaryContainer
-                              : AppTheme.surfaceVariant,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Center(
-                          child: Text(
-                            cat['icon'],
-                            style: const TextStyle(fontSize: 22),
+        if (_isLoading)
+          const Center(child: CircularProgressIndicator())
+        else if (_categories.isEmpty)
+          const Center(child: Text('No categories found.'))
+        else
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _categories.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final cat = _categories[index];
+              final vehicleSizes = (cat['vehicle_sizes'] as List<dynamic>?) ?? [];
+              final displayName = _getCategoryName(cat);
+              final isActive = cat['is_active'] ?? true;
+              return Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppTheme.surface,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppTheme.outlineVariant),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: isActive
+                                ? AppTheme.primaryContainer
+                                : AppTheme.surfaceVariant,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Center(
+                            child: Text(
+                              cat['icon_emoji'] ?? '🔧',
+                              style: const TextStyle(fontSize: 22),
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              displayName,
-                              style: GoogleFonts.manrope(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.onSurface,
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                displayName,
+                                style: GoogleFonts.manrope(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppTheme.onSurface,
+                                ),
                               ),
-                            ),
-                            Row(
-                              children: [
-                                Text(
-                                  '${cat['providers']} providers',
-                                  style: GoogleFonts.manrope(
-                                    fontSize: 12,
-                                    color: AppTheme.onSurfaceVariant,
+                              Row(
+                                children: [
+                                  Text(
+                                    '${cat['providers_count'] ?? 0} providers',
+                                    style: GoogleFonts.manrope(
+                                      fontSize: 12,
+                                      color: AppTheme.onSurfaceVariant,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 6),
-                                const Icon(
-                                  Icons.translate,
-                                  size: 10,
-                                  color: AppTheme.primary,
-                                ),
-                                const SizedBox(width: 2),
-                                Text(
-                                  '${(cat['translations'] as Map?)?.length ?? 0} langs',
-                                  style: GoogleFonts.manrope(
-                                    fontSize: 10,
+                                  const SizedBox(width: 6),
+                                  const Icon(
+                                    Icons.translate,
+                                    size: 10,
                                     color: AppTheme.primary,
                                   ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: cat['active']
-                              ? AppTheme.successContainer
-                              : AppTheme.surfaceVariant,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          cat['active'] ? l.t('active') : 'Inactive',
-                          style: GoogleFonts.manrope(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: cat['active']
-                                ? AppTheme.success
-                                : AppTheme.muted,
+                                  const SizedBox(width: 2),
+                                  Text(
+                                    '${(cat['name_translations'] as Map?)?.length ?? 0} langs',
+                                    style: GoogleFonts.manrope(
+                                      fontSize: 10,
+                                      color: AppTheme.primary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
-                      ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isActive
+                                ? AppTheme.successContainer
+                                : AppTheme.surfaceVariant,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            isActive ? l.t('active') : 'Inactive',
+                            style: GoogleFonts.manrope(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: isActive
+                                  ? AppTheme.success
+                                  : AppTheme.muted,
+                            ),
+                          ),
+                        ),
                       const SizedBox(width: 6),
                       IconButton(
                         onPressed: () => _showVehicleSizeDialog(cat),

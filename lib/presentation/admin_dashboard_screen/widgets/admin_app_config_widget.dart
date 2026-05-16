@@ -238,6 +238,42 @@ class _AdminAppConfigWidgetState extends State<AdminAppConfigWidget>
         setState(() => _selectedInnerTab = _innerTabController.index);
       }
     });
+    _loadConfig();
+  }
+
+  Future<void> _loadConfig() async {
+    try {
+      final response = await Supabase.instance.client
+          .from('app_settings')
+          .select('setting_key, setting_value');
+      
+      final Map<String, String> settings = {
+        for (final row in response as List)
+          row['setting_key'] as String: row['setting_value'] as String
+      };
+
+      if (mounted) {
+        setState(() {
+          if (settings.containsKey('app_name')) _appNameController.text = settings['app_name']!;
+          if (settings.containsKey('app_tagline')) _appTaglineController.text = settings['app_tagline']!;
+          if (settings.containsKey('support_email')) _supportEmailController.text = settings['support_email']!;
+          if (settings.containsKey('support_phone')) _supportPhoneController.text = settings['support_phone']!;
+          
+          if (settings.containsKey('google_maps_key')) _googleMapsKeyController.text = settings['google_maps_key']!;
+          if (settings.containsKey('stripe_publishable_key')) _stripeKeyController.text = settings['stripe_publishable_key']!;
+          
+          if (settings.containsKey('logo_url')) _logoUrlController.text = settings['logo_url']!;
+          
+          if (settings.containsKey('faq_content')) {
+             try {
+               final List decoded = json.decode(settings['faq_content']!);
+               _faqs.clear();
+               _faqs.addAll(decoded.map((f) => Map<String, dynamic>.from(f)));
+             } catch (_) {}
+          }
+        });
+      }
+    } catch (_) {}
   }
 
   @override
@@ -268,19 +304,51 @@ class _AdminAppConfigWidgetState extends State<AdminAppConfigWidget>
     try {
       await Supabase.instance.client.from('app_settings').upsert([
         {
+          'setting_key': 'app_name',
+          'setting_value': _appNameController.text.trim(),
+          'setting_type': 'text',
+        },
+        {
+          'setting_key': 'app_tagline',
+          'setting_value': _appTaglineController.text.trim(),
+          'setting_type': 'text',
+        },
+        {
+          'setting_key': 'support_email',
+          'setting_value': _supportEmailController.text.trim(),
+          'setting_type': 'text',
+        },
+        {
+          'setting_key': 'support_phone',
+          'setting_value': _supportPhoneController.text.trim(),
+          'setting_type': 'text',
+        },
+        {
+          'setting_key': 'google_maps_key',
+          'setting_value': _googleMapsKeyController.text.trim(),
+          'setting_type': 'text',
+        },
+        {
+          'setting_key': 'stripe_publishable_key',
+          'setting_value': _stripeKeyController.text.trim(),
+          'setting_type': 'text',
+        },
+        {
+          'setting_key': 'logo_url',
+          'setting_value': _logoUrlController.text.trim(),
+          'setting_type': 'text',
+        },
+        {
           'setting_key': 'terms_of_service',
           'setting_value': _termsTranslations['en'] ?? '',
           'setting_type': 'text',
         },
         {
           'setting_key': 'faq_content',
-          'setting_value': json.encode(_faqs.map((f) => {
-            'q': f['translations_q']['en'] ?? '',
-            'a': f['translations_a']['en'] ?? '',
-          }).toList()),
+          'setting_value': json.encode(_faqs),
           'setting_type': 'json',
         },
-      ]);
+      ], onConflict: 'setting_key');
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -296,11 +364,12 @@ class _AdminAppConfigWidgetState extends State<AdminAppConfigWidget>
           ),
         );
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Save config error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Failed to save configuration'),
+            content: Text('Failed to save configuration: $e'),
             backgroundColor: AppTheme.error,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),

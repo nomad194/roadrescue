@@ -1143,6 +1143,7 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
     );
     String purchaseMode = existingPlan?['purchase_mode'] as String? ?? 'in_app';
     bool isActive = existingPlan?['is_active'] as bool? ?? true;
+    bool savingPlan = false;
 
     showDialog(
       context: context,
@@ -1265,7 +1266,7 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
                       ),
                       const SizedBox(height: 6),
                       DropdownButtonFormField<String>(
-                        initialValue: purchaseMode,
+                        value: purchaseMode,
                         decoration: InputDecoration(
                           filled: true,
                           fillColor: AppTheme.surfaceVariant,
@@ -1337,59 +1338,119 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(ctx),
+              onPressed: savingPlan ? null : () => Navigator.pop(ctx),
               child: Text(
                 l.t('cancel'),
                 style: GoogleFonts.manrope(color: AppTheme.onSurfaceVariant),
               ),
             ),
             ElevatedButton(
-              onPressed: () async {
-                final hasName = nameTranslations.values.any(
-                  (v) => v.isNotEmpty,
-                );
-                if (!hasName) return;
-                // Use English name as primary 'name' field for backward compat
-                final primaryName =
-                    nameTranslations['en'] ??
-                    nameTranslations.values.firstWhere(
-                      (v) => v.isNotEmpty,
-                      orElse: () => '',
-                    );
-                final primaryDesc =
-                    descTranslations['en'] ??
-                    (descTranslations.values.isNotEmpty
-                        ? descTranslations.values.first
-                        : '');
-                final planData = {
-                  'name': primaryName,
-                  'description': primaryDesc,
-                  'name_translations': nameTranslations,
-                  'description_translations': descTranslations,
-                  'price_monthly': double.tryParse(priceMonthlyCtrl.text) ?? 0,
-                  'price_yearly': double.tryParse(priceYearlyCtrl.text),
-                  'trial_days': int.tryParse(trialDaysCtrl.text) ?? 0,
-                  'discount_percent': double.tryParse(discountCtrl.text) ?? 0,
-                  'purchase_mode': purchaseMode,
-                  'external_url': externalUrlCtrl.text.trim(),
-                  'is_active': isActive,
-                  'updated_at': DateTime.now().toIso8601String(),
-                };
-                try {
-                  if (existingPlan == null) {
-                    await Supabase.instance.client
-                        .from('subscription_plans')
-                        .insert(planData);
-                  } else {
-                    await Supabase.instance.client
-                        .from('subscription_plans')
-                        .update(planData)
-                        .eq('id', existingPlan['id'] as String);
-                  }
-                  if (ctx.mounted) Navigator.pop(ctx);
-                  await _loadPlans();
-                } catch (_) {}
-              },
+              onPressed: savingPlan
+                  ? null
+                  : () async {
+                      final hasName = nameTranslations.values.any(
+                        (v) => v.isNotEmpty,
+                      );
+                      if (!hasName) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Please enter a plan name'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                        return;
+                      }
+
+                      setDialogState(() => savingPlan = true);
+
+                      // Use English name as primary 'name' field for backward compat
+                      final primaryName =
+                          nameTranslations['en'] ??
+                          nameTranslations.values.firstWhere(
+                            (v) => v.isNotEmpty,
+                            orElse: () => '',
+                          );
+                      final primaryDesc =
+                          descTranslations['en'] ??
+                          (descTranslations.values.isNotEmpty
+                              ? descTranslations.values.first
+                              : '');
+
+                      final planData = {
+                        'name': primaryName,
+                        'description': primaryDesc,
+                        'name_translations': nameTranslations,
+                        'description_translations': descTranslations,
+                        'price_monthly':
+                            double.tryParse(priceMonthlyCtrl.text) ?? 0,
+                        'price_yearly': double.tryParse(priceYearlyCtrl.text),
+                        'trial_days': int.tryParse(trialDaysCtrl.text) ?? 0,
+                        'discount_percent':
+                            double.tryParse(discountCtrl.text) ?? 0,
+                        'purchase_mode': purchaseMode,
+                        'external_url': externalUrlCtrl.text.trim(),
+                        'is_active': isActive,
+                        'updated_at': DateTime.now().toIso8601String(),
+                      };
+
+                      try {
+                        if (existingPlan == null) {
+                          await Supabase.instance.client
+                              .from('subscription_plans')
+                              .insert(planData);
+                        } else {
+                          await Supabase.instance.client
+                              .from('subscription_plans')
+                              .update(planData)
+                              .eq('id', existingPlan['id'] as String);
+                        }
+
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Plan saved successfully!',
+                                style: GoogleFonts.manrope(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              backgroundColor: AppTheme.success,
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              margin: const EdgeInsets.all(16),
+                            ),
+                          );
+                        }
+
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        await _loadPlans();
+                      } catch (e) {
+                        debugPrint('Save plan error: $e');
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Failed to save plan: $e',
+                                style: GoogleFonts.manrope(fontSize: 13),
+                              ),
+                              backgroundColor: AppTheme.error,
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              margin: const EdgeInsets.all(16),
+                            ),
+                          );
+                        }
+                      } finally {
+                        if (mounted) {
+                          setDialogState(() => savingPlan = false);
+                        }
+                      }
+                    },
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.primary,
                 foregroundColor: Colors.white,
@@ -1397,16 +1458,26 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              child: Text(
-                l.t('save'),
-                style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
-              ),
+              child: savingPlan
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Text(
+                      l.t('save'),
+                      style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
+                    ),
             ),
           ],
         ),
       ),
     );
   }
+
 
   Widget _dialogField(
     TextEditingController ctrl,
