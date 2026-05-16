@@ -42,6 +42,8 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   List<Map<String, dynamic>> _availablePlans = [];
   bool _isLoadingPlans = true;
   String _billingCycle = 'monthly';
+  Color _dynamicCurrentPlanColor = Colors.blue;
+  bool _isSubscribing = false;
 
   List<_JobRequest> get _filteredJobs {
     return _jobs.where((job) {
@@ -180,9 +182,25 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
           .select()
           .eq('is_active', true)
           .order('price_monthly', ascending: true);
+      
+      // Also fetch dynamic highlight color
+      final colorRes = await Supabase.instance.client
+          .from('app_settings')
+          .select('setting_value')
+          .eq('setting_key', 'current_plan_highlight_color')
+          .maybeSingle();
+
       if (mounted) {
         setState(() {
           _availablePlans = List<Map<String, dynamic>>.from(response);
+          
+          if (colorRes != null) {
+            try {
+              final hex = (colorRes['setting_value'] as String).replaceFirst('#', '');
+              _dynamicCurrentPlanColor = Color(int.parse('FF$hex', radix: 16));
+            } catch (_) {}
+          }
+
           _isLoadingPlans = false;
         });
       }
@@ -521,6 +539,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     final userId = SupabaseService.instance.currentUser?.id;
     if (userId == null) return;
 
+    setState(() => _isSubscribing = true);
     final l = LocalizationService.instance;
     try {
       // Upsert into provider_subscriptions
@@ -537,7 +556,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Successfully subscribed to ${plan['name']}'),
-            backgroundColor: Colors.blue,
+            backgroundColor: _dynamicCurrentPlanColor,
             behavior: SnackBarBehavior.floating,
             margin: const EdgeInsets.all(16),
           ),
@@ -558,6 +577,8 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
           ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isSubscribing = false);
     }
   }
 
@@ -676,43 +697,48 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
 
     return Container(
       color: AppTheme.surface,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          children: List.generate(tabs.length, (index) {
-            final isSelected = _currentTabIndex == index;
-            return GestureDetector(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+      child: Row(
+        children: List.generate(tabs.length, (index) {
+          final isSelected = _currentTabIndex == index;
+          return Expanded(
+            child: GestureDetector(
               onTap: () => setState(() => _currentTabIndex = index),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
-                margin: const EdgeInsets.only(right: 12),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
                 decoration: BoxDecoration(
                   color: isSelected ? AppTheme.primary : AppTheme.surfaceVariant.withAlpha(80),
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(12),
                   border: isSelected ? null : Border.all(color: AppTheme.outlineVariant),
                 ),
-                child: Row(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(tabs[index]['icon'] as IconData, 
-                         size: 16, 
-                         color: isSelected ? Colors.white : AppTheme.onSurfaceVariant),
-                    const SizedBox(width: 8),
+                    Icon(
+                      tabs[index]['icon'] as IconData,
+                      size: 18,
+                      color: isSelected ? Colors.white : AppTheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(height: 4),
                     Text(
                       tabs[index]['label'] as String,
                       style: GoogleFonts.manrope(
-                        fontSize: 13,
+                        fontSize: 9,
                         fontWeight: FontWeight.w700,
                         color: isSelected ? Colors.white : AppTheme.onSurfaceVariant,
                       ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
               ),
-            );
-          }),
-        ),
+            ),
+          );
+        }),
       ),
     );
   }
@@ -909,7 +935,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         color: AppTheme.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isCurrentPlan ? Colors.blue : (isPopular ? AppTheme.primary : AppTheme.outlineVariant),
+          color: isCurrentPlan ? _dynamicCurrentPlanColor : (isPopular ? AppTheme.primary : AppTheme.outlineVariant),
           width: 2,
         ),
       ),
@@ -920,7 +946,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 8),
               decoration: BoxDecoration(
-                color: isCurrentPlan ? Colors.blue : AppTheme.primary,
+                color: isCurrentPlan ? _dynamicCurrentPlanColor : AppTheme.primary,
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
               ),
               child: Text(
@@ -946,13 +972,15 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: isCurrentPlan ? null : () => _subscribeToPlan(plan),
+                    onPressed: (isCurrentPlan || _isSubscribing) ? null : () => _subscribeToPlan(plan),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: isCurrentPlan ? Colors.blue.withAlpha(20) : AppTheme.primary,
-                      foregroundColor: isCurrentPlan ? Colors.blue : Colors.white,
+                      backgroundColor: isCurrentPlan ? _dynamicCurrentPlanColor.withAlpha(20) : AppTheme.primary,
+                      foregroundColor: isCurrentPlan ? _dynamicCurrentPlanColor : Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    child: Text(isCurrentPlan ? l.t('current_plan') : l.t('subscribe')),
+                    child: _isSubscribing && !isCurrentPlan
+                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : Text(isCurrentPlan ? l.t('current_plan') : l.t('subscribe')),
                   ),
                 ),
               ],

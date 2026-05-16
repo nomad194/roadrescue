@@ -140,22 +140,16 @@ class SetupRequiredApp extends StatelessWidget {
 class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
-  static State<MyApp>? of(BuildContext context) =>
-      context.findAncestorStateOfType<_MyAppState>();
-
   @override
   State<MyApp> createState() => _MyAppState();
 }
 
 class _MyAppState extends State<MyApp> {
-  Locale _locale = const Locale('en');
   StreamSubscription<AuthState>? _authSubscription;
 
   @override
   void initState() {
     super.initState();
-    _locale = LocalizationService.instance.currentLocale;
-    LocalizationService.instance.addListener(_onLocaleChanged);
 
     // Set up notification listener based on auth state
     _authSubscription = SupabaseService.instance.authStateChanges.listen((data) {
@@ -176,48 +170,48 @@ class _MyAppState extends State<MyApp> {
 
   @override
   void dispose() {
-    LocalizationService.instance.removeListener(_onLocaleChanged);
     _authSubscription?.cancel();
     super.dispose();
   }
 
-  void _onLocaleChanged() {
-    if (mounted) {
-      setState(() => _locale = LocalizationService.instance.currentLocale);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Sizer(
-      builder: (context, orientation, screenType) {
-        return MaterialApp(
-          title: 'roadrescue',
-          theme: AppTheme.lightTheme,
-          darkTheme: AppTheme.darkTheme,
-          themeMode: ThemeMode.light,
-          locale: _locale,
-          supportedLocales: LocalizationService.supportedLanguages.keys
-              .map((code) => Locale(code))
-              .toList(),
-          localizationsDelegates: const [
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
-          // 🚨 CRITICAL: NEVER REMOVE OR MODIFY
-          builder: (context, child) {
-            return MediaQuery(
-              data: MediaQuery.of(
-                context,
-              ).copyWith(textScaler: TextScaler.linear(1.0)),
-              child: child!,
+    return ListenableBuilder(
+      listenable: LocalizationService.instance,
+      builder: (context, _) {
+        final currentLocale = LocalizationService.instance.currentLocale;
+        
+        return Sizer(
+          builder: (context, orientation, screenType) {
+            return MaterialApp(
+              title: 'roadrescue',
+              theme: AppTheme.lightTheme,
+              darkTheme: AppTheme.darkTheme,
+              themeMode: ThemeMode.light,
+              locale: currentLocale,
+              supportedLocales: LocalizationService.supportedLanguages.keys
+                  .map((code) => Locale(code))
+                  .toList(),
+              localizationsDelegates: const [
+                GlobalMaterialLocalizations.delegate,
+                GlobalWidgetsLocalizations.delegate,
+                GlobalCupertinoLocalizations.delegate,
+              ],
+              // 🚨 CRITICAL: NEVER REMOVE OR MODIFY
+              builder: (context, child) {
+                return MediaQuery(
+                  data: MediaQuery.of(
+                    context,
+                  ).copyWith(textScaler: TextScaler.linear(1.0)),
+                  child: child!,
+                );
+              },
+              // 🚨 END CRITICAL SECTION
+              debugShowCheckedModeBanner: false,
+              routes: AppRoutes.routes,
+              initialRoute: AppRoutes.initial,
             );
           },
-          // 🚨 END CRITICAL SECTION
-          debugShowCheckedModeBanner: false,
-          routes: AppRoutes.routes,
-          initialRoute: AppRoutes.initial,
         );
       },
     );

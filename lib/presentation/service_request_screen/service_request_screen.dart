@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:convert';
 
 import '../../routes/app_routes.dart';
 import '../../services/supabase_service.dart';
@@ -48,30 +49,41 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
 
   List<Map<String, dynamic>> get _availableVehicleSizes {
     if (_selectedCategory == null) return [];
-    final cat = _dynamicCategories.firstWhere(
-      (c) => c['id'].toString() == _selectedCategory,
-      orElse: () => {},
-    );
-    if (cat.isEmpty) return [];
-    final sizes = (cat['vehicle_sizes'] as List<dynamic>?) ?? [];
-    return _vehicleSizeOptions.where((v) => sizes.contains(v['id'])).toList();
+    try {
+      final cat = _dynamicCategories.firstWhere(
+        (c) => c['id']?.toString() == _selectedCategory,
+        orElse: () => {},
+      );
+      if (cat.isEmpty) return [];
+      
+      final sizesRaw = cat['vehicle_sizes'];
+      List<dynamic> sizes = [];
+      if (sizesRaw is List) {
+        sizes = sizesRaw;
+      } else if (sizesRaw is String) {
+        try {
+          sizes = json.decode(sizesRaw) as List;
+        } catch (_) {}
+      }
+      
+      return _vehicleSizeOptions.where((v) => sizes.contains(v['id'])).toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   String get _selectedCategoryLabel {
     if (_selectedCategory == null) return '';
-    final cat = _dynamicCategories.firstWhere(
-      (c) => c['id'].toString() == _selectedCategory,
-      orElse: () => {'name': '', 'name_translations': <String, String>{}},
-    );
-    final l = LocalizationService.instance;
-    final translations = cat['name_translations'] as Map?;
-    if (translations != null) {
-      return l.translateContent(
-        translations.map((k, v) => MapEntry(k.toString(), v.toString())),
-        fallbackText: cat['name'] as String? ?? '',
+    try {
+      final cat = _dynamicCategories.firstWhere(
+        (c) => c['id']?.toString() == _selectedCategory,
+        orElse: () => {},
       );
+      if (cat.isEmpty) return '';
+      return _getCategoryName(cat);
+    } catch (_) {
+      return '';
     }
-    return cat['name'] as String? ?? '';
   }
 
   @override
@@ -81,10 +93,19 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
   }
 
   Future<void> _loadInitialData() async {
-    await Future.wait([
-      _loadActiveRequest(),
-      _loadCategories(),
-    ]);
+    try {
+      await Future.wait([
+        _loadActiveRequest(),
+        _loadCategories(),
+      ]);
+    } catch (e) {
+      debugPrint('Error loading initial data: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingCats = false;
+        });
+      }
+    }
   }
 
   Future<void> _loadCategories() async {
@@ -150,7 +171,7 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
     }
 
     return ActiveHelpRequest(
-      id: data['id'] as String,
+      id: data['id']?.toString() ?? '',
       serviceType: data['service_type'] as String? ?? '',
       serviceIcon: data['service_icon'] as String? ?? 'build',
       address: data['address'] as String? ?? '',
@@ -431,8 +452,17 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
 
   String _getCategoryName(Map<String, dynamic> category) {
     final l = LocalizationService.instance;
-    final translations =
-        category['name_translations'] as Map<String, dynamic>? ?? {};
+    final translationsRaw = category['name_translations'];
+    Map<String, dynamic> translations = {};
+    
+    if (translationsRaw is Map) {
+      translations = translationsRaw.map((k, v) => MapEntry(k.toString(), v));
+    } else if (translationsRaw is String) {
+      try {
+        translations = (json.decode(translationsRaw) as Map).map((k, v) => MapEntry(k.toString(), v));
+      } catch (_) {}
+    }
+
     return l.translateContent(
       translations,
       fallbackText: category['name'] as String? ?? '',
@@ -518,6 +548,20 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
     if (_isLoadingCats) {
       return const Center(child: CircularProgressIndicator());
     }
+
+    final List<Map<String, dynamic>> mappedCategories = [];
+    for (final c in _dynamicCategories) {
+      try {
+        mappedCategories.add({
+          'id': c['id']?.toString() ?? '',
+          'label': _getCategoryName(c),
+          'icon': c['icon_emoji'] ?? 'build',
+        });
+      } catch (e) {
+        debugPrint('Error mapping category: $e');
+      }
+    }
+
     return SingleChildScrollView(
       physics: const ClampingScrollPhysics(),
       child: Padding(
@@ -532,16 +576,26 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
               l.t('select_service_subtitle'),
             ),
             const SizedBox(height: 12),
-            ServiceCategoryGridWidget(
-              categories: _dynamicCategories.map((c) => {
-                'id': c['id'].toString(),
-                'label': _getCategoryName(c),
-                'icon': c['icon_emoji'] ?? 'build',
-              }).toList(),
-              selectedId: _selectedCategory,
-              onSelected: _onCategorySelected,
-              crossAxisCount: 2,
-            ),
+            if (mappedCategories.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 40),
+                child: Center(
+                  child: Text(
+                    'No services currently available',
+                    style: GoogleFonts.manrope(
+                      color: AppTheme.onSurfaceVariant,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              )
+            else
+              ServiceCategoryGridWidget(
+                categories: mappedCategories,
+                selectedId: _selectedCategory,
+                onSelected: _onCategorySelected,
+                crossAxisCount: 2,
+              ),
             if (_selectedCategory != null &&
                 _availableVehicleSizes.isNotEmpty) ...[
               const SizedBox(height: 20),
@@ -650,6 +704,20 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
     if (_isLoadingCats) {
       return const Center(child: CircularProgressIndicator());
     }
+
+    final List<Map<String, dynamic>> mappedCategories = [];
+    for (final c in _dynamicCategories) {
+      try {
+        mappedCategories.add({
+          'id': c['id']?.toString() ?? '',
+          'label': _getCategoryName(c),
+          'icon': c['icon_emoji'] ?? 'build',
+        });
+      } catch (e) {
+        debugPrint('Error mapping category: $e');
+      }
+    }
+
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Row(
@@ -666,16 +734,26 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
                     l.t('select_service_subtitle'),
                   ),
                   const SizedBox(height: 12),
-                  ServiceCategoryGridWidget(
-                    categories: _dynamicCategories.map((c) => {
-                      'id': c['id'].toString(),
-                      'label': _getCategoryName(c),
-                      'icon': c['icon_emoji'] ?? 'build',
-                    }).toList(),
-                    selectedId: _selectedCategory,
-                    onSelected: _onCategorySelected,
-                    crossAxisCount: 3,
-                  ),
+                  if (mappedCategories.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 40),
+                      child: Center(
+                        child: Text(
+                          'No services currently available',
+                          style: GoogleFonts.manrope(
+                            color: AppTheme.onSurfaceVariant,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    ServiceCategoryGridWidget(
+                      categories: mappedCategories,
+                      selectedId: _selectedCategory,
+                      onSelected: _onCategorySelected,
+                      crossAxisCount: 3,
+                    ),
                   if (_selectedCategory != null &&
                       _availableVehicleSizes.isNotEmpty) ...[
                     const SizedBox(height: 20),

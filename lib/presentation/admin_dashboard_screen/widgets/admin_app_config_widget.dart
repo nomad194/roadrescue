@@ -51,6 +51,7 @@ class _AdminAppConfigWidgetState extends State<AdminAppConfigWidget>
   // Appearance
   Color _primaryColor = AppTheme.primary;
   Color _secondaryColor = AppTheme.secondary;
+  Color _currentPlanColor = const Color(0xFF1A56DB); // Default Blue
   final _logoUrlController = TextEditingController(
     text:
         'https://img.rocket.new/generatedImages/rocket_gen_img_194e798b6-1763300798761.png',
@@ -264,6 +265,13 @@ class _AdminAppConfigWidgetState extends State<AdminAppConfigWidget>
           
           if (settings.containsKey('logo_url')) _logoUrlController.text = settings['logo_url']!;
           
+          if (settings.containsKey('current_plan_highlight_color')) {
+            try {
+              final hex = settings['current_plan_highlight_color']!.replaceFirst('#', '');
+              _currentPlanColor = Color(int.parse('FF$hex', radix: 16));
+            } catch (_) {}
+          }
+
           if (settings.containsKey('faq_content')) {
              try {
                final List decoded = json.decode(settings['faq_content']!);
@@ -336,6 +344,11 @@ class _AdminAppConfigWidgetState extends State<AdminAppConfigWidget>
         {
           'setting_key': 'logo_url',
           'setting_value': _logoUrlController.text.trim(),
+          'setting_type': 'text',
+        },
+        {
+          'setting_key': 'current_plan_highlight_color',
+          'setting_value': '#${_currentPlanColor.toARGB32().toRadixString(16).substring(2).toUpperCase()}',
           'setting_type': 'text',
         },
         {
@@ -726,6 +739,12 @@ class _AdminAppConfigWidgetState extends State<AdminAppConfigWidget>
                 'Secondary Color',
                 _secondaryColor,
                 (c) => setState(() => _secondaryColor = c),
+              ),
+              const SizedBox(height: 10),
+              _buildColorRow(
+                'Current Plan Highlight',
+                _currentPlanColor,
+                (c) => setState(() => _currentPlanColor = c),
               ),
             ],
           ),
