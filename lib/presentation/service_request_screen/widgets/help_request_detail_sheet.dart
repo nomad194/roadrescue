@@ -110,9 +110,9 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
         payload: 'booking_confirmed_cod',
       );
 
-      if (!mounted) return;
+      if (!context.mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
       final nav = Navigator.of(context);
-      final sm = ScaffoldMessenger.of(context);
       
       nav.pop();
       widget.onQuoteAccepted?.call();
@@ -132,7 +132,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
           },
         );
       } else {
-        sm.showSnackBar(
+        messenger.showSnackBar(
           SnackBar(
             content: Text(
               'Order confirmed! Provider notified (COD).',

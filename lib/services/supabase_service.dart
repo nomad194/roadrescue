@@ -79,6 +79,39 @@ class SupabaseService {
     await client.auth.signOut();
   }
 
+  // ─── SUBSCRIPTIONS ───────────────────────────────────────────────────────
+
+  /// Fetch the current active subscription for a provider
+  Future<Map<String, dynamic>?> getActiveSubscription(String providerId) async {
+    try {
+      final response = await client
+          .from('provider_subscriptions')
+          .select('*, plan:plan_id(*)')
+          .eq('provider_id', providerId)
+          .eq('status', 'active')
+          .maybeSingle();
+      return response;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ─── CATEGORIES ──────────────────────────────────────────────────────────
+
+  /// Fetch all active service categories
+  Future<List<Map<String, dynamic>>> getServiceCategories() async {
+    try {
+      final response = await client
+          .from('service_categories')
+          .select()
+          .eq('is_active', true)
+          .order('sort_order', ascending: true);
+      return List<Map<String, dynamic>>.from(response);
+    } catch (_) {
+      return [];
+    }
+  }
+
   // ─── USER PROFILES ───────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>?> getUserProfile(String userId) async {

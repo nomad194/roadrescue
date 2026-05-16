@@ -150,11 +150,24 @@ class _SubscriptionPlansScreenState extends State<SubscriptionPlansScreen> {
     int index,
     LocalizationService l,
   ) {
-    final isPopular = index == 1;
+    final String badgeText = plan['badge_text'] as String? ?? '';
+    final bool isFeatured = plan['is_featured'] as bool? ?? false;
+    // Use popular flag or index
+    final isPopular = isFeatured || index == 1 || badgeText.isNotEmpty;
+
     final priceMonthly = (plan['price_monthly'] as num?)?.toDouble() ?? 0;
     final priceYearly = (plan['price_yearly'] as num?)?.toDouble();
     final trialDays = plan['trial_days'] as int? ?? 0;
     final discountPercent = (plan['discount_percent'] as num?)?.toDouble() ?? 0;
+    
+    // Limits & Rules
+    final maxServices = plan['max_services'] as int? ?? 5;
+    final maxCategories = plan['max_categories'] as int? ?? 2;
+    final maxRadius = plan['max_radius_miles'] as int? ?? 25;
+    final hasAfterHours = plan['can_use_after_hours'] as bool? ?? false;
+    final canSetDistanceSurcharges = plan['can_set_distance_surcharges'] as bool? ?? false;
+    final priorityLevel = plan['priority_level'] as int? ?? 0;
+
     final features = (plan['features'] as List<dynamic>?) ?? [];
     final purchaseMode = plan['purchase_mode'] as String? ?? 'in_app';
     final externalUrl = plan['external_url'] as String? ?? '';
@@ -214,7 +227,7 @@ class _SubscriptionPlansScreenState extends State<SubscriptionPlansScreen> {
                 ),
               ),
               child: Text(
-                l.t('most_popular'),
+                badgeText.isNotEmpty ? badgeText : l.t('most_popular'),
                 textAlign: TextAlign.center,
                 style: GoogleFonts.manrope(
                   fontSize: 12,
@@ -333,6 +346,25 @@ class _SubscriptionPlansScreenState extends State<SubscriptionPlansScreen> {
                 const SizedBox(height: 14),
                 const Divider(color: AppTheme.outlineVariant),
                 const SizedBox(height: 10),
+                
+                // Limits Icons
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  children: [
+                    _buildPlanLimit(Icons.build_circle_outlined, maxServices == 0 ? 'Unlimited Services' : '$maxServices Services'),
+                    _buildPlanLimit(Icons.category_outlined, maxCategories == 0 ? 'Unlimited Categories' : '$maxCategories Categories'),
+                    _buildPlanLimit(Icons.map_outlined, maxRadius == 0 ? 'Global' : '$maxRadius mi range'),
+                    if (canSetDistanceSurcharges)
+                      _buildPlanLimit(Icons.add_road_outlined, 'Extra Range Fees'),
+                    if (priorityLevel > 0)
+                      _buildPlanLimit(Icons.priority_high_rounded, 'Priority ${priorityLevel == 3 ? 'High' : priorityLevel == 2 ? 'Med' : 'Low'}'),
+                    if (hasAfterHours)
+                      _buildPlanLimit(Icons.nights_stay_outlined, 'After-Hours'),
+                  ],
+                ),
+                const SizedBox(height: 14),
+
                 ...features.map(
                   (f) => Padding(
                     padding: const EdgeInsets.only(bottom: 6),
@@ -394,6 +426,24 @@ class _SubscriptionPlansScreenState extends State<SubscriptionPlansScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPlanLimit(IconData icon, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: AppTheme.muted),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: GoogleFonts.manrope(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.onSurfaceVariant,
+          ),
+        ),
+      ],
     );
   }
 

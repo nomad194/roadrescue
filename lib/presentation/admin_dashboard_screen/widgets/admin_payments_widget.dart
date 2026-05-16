@@ -961,108 +961,160 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
     final discountPercent = (plan['discount_percent'] as num?)?.toDouble() ?? 0;
     final purchaseMode = plan['purchase_mode'] as String? ?? 'in_app';
 
-    return Opacity(
-      opacity: isActive ? 1.0 : 0.6,
-      child: Container(
-        padding: const EdgeInsets.all(14),
+    return Dismissible(
+      key: Key('plan-${plan['id']}'),
+      direction: DismissDirection.endToStart,
+      confirmDismiss: (_) => _confirmDeletePlan(plan),
+      onDismissed: (_) => _deletePlan(plan['id'] as String),
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
         decoration: BoxDecoration(
-          color: AppTheme.surface,
+          color: AppTheme.error,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isActive
-                ? AppTheme.outlineVariant
-                : AppTheme.outline.withAlpha(80),
-          ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+        child: const Icon(Icons.delete_outline, color: Colors.white),
+      ),
+      child: Opacity(
+        opacity: isActive ? 1.0 : 0.6,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isActive
+                  ? AppTheme.outlineVariant
+                  : AppTheme.outline.withAlpha(80),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          plan['name'] as String? ?? '',
+                          style: GoogleFonts.manrope(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.onSurface,
+                          ),
+                        ),
+                        Text(
+                          '\$${(plan['price_monthly'] as num?)?.toStringAsFixed(2) ?? '0.00'}/mo',
+                          style: GoogleFonts.manrope(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Row(
                     children: [
-                      Text(
-                        plan['name'] as String? ?? '',
-                        style: GoogleFonts.manrope(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.onSurface,
+                      IconButton(
+                        onPressed: () => _showPlanDialog(plan),
+                        icon: const Icon(
+                          Icons.edit_outlined,
+                          size: 18,
+                          color: AppTheme.primary,
+                        ),
+                        style: IconButton.styleFrom(
+                          backgroundColor: AppTheme.primaryContainer,
+                          minimumSize: const Size(32, 32),
                         ),
                       ),
-                      Text(
-                        '\$${(plan['price_monthly'] as num?)?.toStringAsFixed(2) ?? '0.00'}/mo',
-                        style: GoogleFonts.manrope(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.primary,
+                      const SizedBox(width: 6),
+                      IconButton(
+                        onPressed: () => _togglePlanActive(plan),
+                        icon: Icon(
+                          isActive ? Icons.toggle_on : Icons.toggle_off,
+                          size: 22,
+                          color: isActive ? AppTheme.success : AppTheme.muted,
+                        ),
+                        style: IconButton.styleFrom(
+                          backgroundColor: isActive
+                              ? AppTheme.successContainer
+                              : AppTheme.surfaceVariant,
+                          minimumSize: const Size(32, 32),
                         ),
                       ),
                     ],
                   ),
-                ),
-                Row(
-                  children: [
-                    IconButton(
-                      onPressed: () => _showPlanDialog(plan),
-                      icon: const Icon(
-                        Icons.edit_outlined,
-                        size: 18,
-                        color: AppTheme.primary,
-                      ),
-                      style: IconButton.styleFrom(
-                        backgroundColor: AppTheme.primaryContainer,
-                        minimumSize: const Size(32, 32),
-                      ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  if (trialDays > 0)
+                    _buildChip(
+                      '$trialDays day trial',
+                      AppTheme.warning,
+                      AppTheme.warningContainer,
                     ),
-                    const SizedBox(width: 6),
-                    IconButton(
-                      onPressed: () => _togglePlanActive(plan),
-                      icon: Icon(
-                        isActive ? Icons.toggle_on : Icons.toggle_off,
-                        size: 22,
-                        color: isActive ? AppTheme.success : AppTheme.muted,
-                      ),
-                      style: IconButton.styleFrom(
-                        backgroundColor: isActive
-                            ? AppTheme.successContainer
-                            : AppTheme.surfaceVariant,
-                        minimumSize: const Size(32, 32),
-                      ),
+                  if (discountPercent > 0)
+                    _buildChip(
+                      '${discountPercent.toInt()}% off',
+                      AppTheme.success,
+                      AppTheme.successContainer,
                     ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 4,
-              children: [
-                if (trialDays > 0)
                   _buildChip(
-                    '$trialDays day trial',
-                    AppTheme.warning,
-                    AppTheme.warningContainer,
+                    purchaseMode == 'external' ? 'External Link' : 'In-App',
+                    AppTheme.primary,
+                    AppTheme.primaryContainer,
                   ),
-                if (discountPercent > 0)
-                  _buildChip(
-                    '${discountPercent.toInt()}% off',
-                    AppTheme.success,
-                    AppTheme.successContainer,
-                  ),
-                _buildChip(
-                  purchaseMode == 'external' ? 'External Link' : 'In-App',
-                  AppTheme.primary,
-                  AppTheme.primaryContainer,
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  Future<bool?> _confirmDeletePlan(Map<String, dynamic> plan) async {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Plan'),
+        content: Text('Are you sure you want to delete "${plan['name']}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: AppTheme.error),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deletePlan(String planId) async {
+    try {
+      await Supabase.instance.client
+          .from('subscription_plans')
+          .delete()
+          .eq('id', planId);
+      await _loadPlans();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error deleting plan: $e')),
+        );
+      }
+    }
   }
 
   Widget _buildChip(String label, Color color, Color bg) {
@@ -1138,11 +1190,29 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
           (existingPlan?['discount_percent'] as num?)?.toStringAsFixed(0) ??
           '0',
     );
+    final maxServicesCtrl = TextEditingController(
+      text: (existingPlan?['max_services'] as int?)?.toString() ?? '5',
+    );
+    final maxRadiusCtrl = TextEditingController(
+      text: (existingPlan?['max_radius_miles'] as int?)?.toString() ?? '25',
+    );
+    final maxCategoriesCtrl = TextEditingController(
+      text: (existingPlan?['max_categories'] as int?)?.toString() ?? '2',
+    );
     final externalUrlCtrl = TextEditingController(
       text: existingPlan?['external_url'] as String? ?? '',
     );
+    final badgeTextCtrl = TextEditingController(
+      text: existingPlan?['badge_text'] as String? ?? '',
+    );
     String purchaseMode = existingPlan?['purchase_mode'] as String? ?? 'in_app';
     bool isActive = existingPlan?['is_active'] as bool? ?? true;
+    bool isFeatured = existingPlan?['is_featured'] as bool? ?? false;
+    bool canUseAfterHours = existingPlan?['can_use_after_hours'] as bool? ?? false;
+    bool canSetDistanceSurcharges = existingPlan?['can_set_distance_surcharges'] as bool? ?? false;
+    int priorityLevel = existingPlan?['priority_level'] as int? ?? 0;
+    List<String> features = List<String>.from(existingPlan?['features'] ?? []);
+    final featureAddCtrl = TextEditingController();
     bool savingPlan = false;
 
     showDialog(
@@ -1252,6 +1322,181 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
                       ),
                     ],
                   ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _dialogField(
+                          maxServicesCtrl,
+                          'Max Services',
+                          hint: '0 for unlimited',
+                          keyboardType: TextInputType.number,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Priority Level',
+                              style: GoogleFonts.manrope(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            DropdownButtonFormField<int>(
+                              initialValue: priorityLevel,
+                              decoration: InputDecoration(
+                                filled: true,
+                                fillColor: AppTheme.surfaceVariant,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide:
+                                      const BorderSide(color: AppTheme.outline),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
+                              ),
+                              items: const [
+                                DropdownMenuItem(value: 0, child: Text('None')),
+                                DropdownMenuItem(
+                                    value: 1, child: Text('Low')),
+                                DropdownMenuItem(
+                                    value: 2, child: Text('Medium')),
+                                DropdownMenuItem(
+                                    value: 3, child: Text('High')),
+                              ],
+                              onChanged: (v) =>
+                                  setDialogState(() => priorityLevel = v!),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _dialogField(
+                          maxRadiusCtrl,
+                          'Max Radius (mi)',
+                          hint: 'e.g. 50',
+                          keyboardType: TextInputType.number,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _dialogField(
+                          maxCategoriesCtrl,
+                          'Max Categories',
+                          hint: 'e.g. 3',
+                          keyboardType: TextInputType.number,
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Additional toggles
+                  Row(
+                    children: [
+                      const Icon(Icons.history_toggle_off, size: 18, color: AppTheme.muted),
+                      const SizedBox(width: 8),
+                      const Expanded(child: Text('After-Hours Rates', style: TextStyle(fontSize: 13))),
+                      Switch(
+                        value: canUseAfterHours,
+                        onChanged: (v) => setDialogState(() => canUseAfterHours = v),
+                        activeThumbColor: AppTheme.primary,
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      const Icon(Icons.add_road_outlined, size: 18, color: AppTheme.muted),
+                      const SizedBox(width: 8),
+                      const Expanded(child: Text('Distance Surcharges', style: TextStyle(fontSize: 13))),
+                      Switch(
+                        value: canSetDistanceSurcharges,
+                        onChanged: (v) => setDialogState(() => canSetDistanceSurcharges = v),
+                        activeThumbColor: AppTheme.primary,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  // Feature list management
+                  Text(
+                    'Features List',
+                    style: GoogleFonts.manrope(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: AppTheme.surfaceVariant.withAlpha(50),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppTheme.outline),
+                    ),
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      children: [
+                        ...features.map((f) => Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.check_circle,
+                                      size: 16, color: AppTheme.success),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                      child: Text(f,
+                                          style: const TextStyle(fontSize: 12))),
+                                  IconButton(
+                                    onPressed: () =>
+                                        setDialogState(() => features.remove(f)),
+                                    icon: const Icon(Icons.remove_circle_outline,
+                                        size: 18, color: AppTheme.error),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  ),
+                                ],
+                              ),
+                            )),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: featureAddCtrl,
+                                decoration: const InputDecoration(
+                                  hintText: 'Add a feature...',
+                                  isDense: true,
+                                  border: InputBorder.none,
+                                ),
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: () {
+                                if (featureAddCtrl.text.isNotEmpty) {
+                                  setDialogState(() {
+                                    features.add(featureAddCtrl.text.trim());
+                                    featureAddCtrl.clear();
+                                  });
+                                }
+                              },
+                              icon: const Icon(Icons.add_circle_outline,
+                                  color: AppTheme.primary),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                   // Purchase mode
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1266,7 +1511,7 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
                       ),
                       const SizedBox(height: 6),
                       DropdownButtonFormField<String>(
-                        value: purchaseMode,
+                        initialValue: purchaseMode,
                         decoration: InputDecoration(
                           filled: true,
                           fillColor: AppTheme.surfaceVariant,
@@ -1314,6 +1559,11 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
                       l.t('external_url'),
                       hint: 'https://yoursite.com/plans',
                     ),
+                  _dialogField(
+                    badgeTextCtrl,
+                    'Plan Badge (e.g. Recommended)',
+                    hint: 'Leave empty for no badge',
+                  ),
                   // Active toggle
                   Row(
                     children: [
@@ -1328,6 +1578,23 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
                       Switch(
                         value: isActive,
                         onChanged: (v) => setDialogState(() => isActive = v),
+                        activeThumbColor: AppTheme.primary,
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      const Text(
+                        'Featured Plan',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: AppTheme.onSurface,
+                        ),
+                      ),
+                      const Spacer(),
+                      Switch(
+                        value: isFeatured,
+                        onChanged: (v) => setDialogState(() => isFeatured = v),
                         activeThumbColor: AppTheme.primary,
                       ),
                     ],
@@ -1387,9 +1654,18 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
                         'trial_days': int.tryParse(trialDaysCtrl.text) ?? 0,
                         'discount_percent':
                             double.tryParse(discountCtrl.text) ?? 0,
+                        'max_services': int.tryParse(maxServicesCtrl.text) ?? 5,
+                        'max_radius_miles': int.tryParse(maxRadiusCtrl.text) ?? 25,
+                        'max_categories': int.tryParse(maxCategoriesCtrl.text) ?? 2,
+                        'priority_level': priorityLevel,
+                        'is_featured': isFeatured,
+                        'badge_text': badgeTextCtrl.text.trim(),
+                        'can_use_after_hours': canUseAfterHours,
+                        'can_set_distance_surcharges': canSetDistanceSurcharges,
                         'purchase_mode': purchaseMode,
                         'external_url': externalUrlCtrl.text.trim(),
                         'is_active': isActive,
+                        'features': features,
                         'updated_at': DateTime.now().toIso8601String(),
                       };
 
@@ -1406,7 +1682,8 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
                         }
 
                         if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          final messenger = ScaffoldMessenger.of(context);
+                          messenger.showSnackBar(
                             SnackBar(
                               content: Text(
                                 'Plan saved successfully!',
@@ -1425,12 +1702,13 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
                           );
                         }
 
-                        if (ctx.mounted) Navigator.pop(ctx);
+                        if (ctx.mounted) Navigator.of(ctx).pop();
                         await _loadPlans();
                       } catch (e) {
                         debugPrint('Save plan error: $e');
                         if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          final messenger = ScaffoldMessenger.of(context);
+                          messenger.showSnackBar(
                             SnackBar(
                               content: Text(
                                 'Failed to save plan: $e',

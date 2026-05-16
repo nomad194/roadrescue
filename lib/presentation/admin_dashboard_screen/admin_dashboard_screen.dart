@@ -12,6 +12,8 @@ import './widgets/admin_payments_widget.dart';
 import '../../widgets/language_selector_widget.dart';
 import '../../services/localization_service.dart';
 
+import '../../services/supabase_service.dart';
+
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
 
@@ -133,6 +135,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         ),
         actions: [
           const LanguageSelectorWidget(),
+          const SizedBox(width: 8),
+          IconButton(
+            onPressed: () async {
+              final nav = Navigator.of(context);
+              await SupabaseService.instance.signOut();
+              if (!nav.context.mounted) return;
+              nav.pushNamedAndRemoveUntil(
+                AppRoutes.signUpLoginScreen,
+                (route) => false,
+              );
+            },
+            icon: const Icon(
+              Icons.logout_rounded,
+              size: 20,
+              color: AppTheme.error,
+            ),
+            tooltip: LocalizationService.instance.t('sign_out'),
+          ),
           const SizedBox(width: 8),
           Container(
             margin: const EdgeInsets.only(right: 16),

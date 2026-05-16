@@ -5,6 +5,8 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../theme/app_theme.dart';
 import '../../services/localization_service.dart';
 
+import '../../services/supabase_service.dart';
+
 class ProviderServicesScreen extends StatefulWidget {
   const ProviderServicesScreen({super.key});
 
@@ -16,99 +18,125 @@ class _ProviderServicesScreenState extends State<ProviderServicesScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
-  static const List<Map<String, dynamic>> _allServices = [
-    {
-      'id': 'towing',
-      'name': 'Towing',
-      'icon': Icons.local_shipping_rounded,
-      'color': Color(0xFF1A56DB),
-    },
-    {
-      'id': 'flat_tire',
-      'name': 'Flat Tire',
-      'icon': Icons.tire_repair_rounded,
-      'color': Color(0xFFF97316),
-    },
-    {
-      'id': 'lockout',
-      'name': 'Lockout',
-      'icon': Icons.lock_open_rounded,
-      'color': Color(0xFF16A34A),
-    },
-    {
-      'id': 'fuel_delivery',
-      'name': 'Fuel Delivery',
-      'icon': Icons.local_gas_station_rounded,
-      'color': Color(0xFFD97706),
-    },
-    {
-      'id': 'jump_start',
-      'name': 'Jump Start',
-      'icon': Icons.bolt_rounded,
-      'color': Color(0xFF7C3AED),
-    },
-    {
-      'id': 'battery',
-      'name': 'Battery',
-      'icon': Icons.battery_alert_rounded,
-      'color': Color(0xFFDC2626),
-    },
-    {
-      'id': 'winching',
-      'name': 'Winching',
-      'icon': Icons.settings_input_component_rounded,
-      'color': Color(0xFF0891B2),
-    },
-    {
-      'id': 'accident',
-      'name': 'Accident Recovery',
-      'icon': Icons.car_crash_rounded,
-      'color': Color(0xFF9D174D),
-    },
-  ];
+  List<Map<String, dynamic>> _allServices = [];
+  bool _isLoadingCategories = true;
 
   // Map of serviceId -> ServicePricing
   final Map<String, _ServicePricing> _pricingMap = {};
   // Set of enabled service IDs
   final Set<String> _enabledServices = {};
 
+  // Subscription Info
+  Map<String, dynamic>? _activeSubscription;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    // Pre-populate with some defaults
-    _enabledServices.addAll(['towing', 'flat_tire', 'jump_start']);
-    for (final s in _allServices) {
-      _pricingMap[s['id'] as String] = _ServicePricing(basePrice: 0);
-    }
-    _pricingMap['towing'] = _ServicePricing(basePrice: 85);
-    _pricingMap['flat_tire'] = _ServicePricing(basePrice: 55);
-    _pricingMap['jump_start'] = _ServicePricing(basePrice: 45);
+    _initData();
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
+  Future<void> _initData() async {
+    await Future.wait([
+      _loadCategories(),
+      _loadSubscription(),
+    ]);
+  }
+
+  Future<void> _loadCategories() async {
+    setState(() => _isLoadingCategories = true);
+    final cats = await SupabaseService.instance.getServiceCategories();
+    if (mounted) {
+      setState(() {
+        _allServices = cats;
+        _isLoadingCategories = false;
+        // Initialize pricing for any new services
+        for (final s in _allServices) {
+          final id = s['id'].toString();
+          if (!_pricingMap.containsKey(id)) {
+            _pricingMap[id] = const _ServicePricing(basePrice: 0);
+          }
+        }
+      });
+    }
+  }
+
+  Future<void> _loadSubscription() async {
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) return;
+    
+    final sub = await SupabaseService.instance.getActiveSubscription(userId);
+    if (mounted) {
+      setState(() {
+        _activeSubscription = sub;
+      });
+    }
   }
 
   void _toggleService(String id) {
+    if (!_enabledServices.contains(id)) {
+      // Logic for Enforcement: check category limits
+      final plan = _activeSubscription?['plan'] as Map<String, dynamic>?;
+      if (plan != null) {
+        final maxCategories = plan['max_categories'] as int? ?? 1;
+        if (maxCategories > 0 && _enabledServices.length >= maxCategories) {
+          _showLimitReached('categories', maxCategories);
+          return;
+        }
+      }
+    }
+
     setState(() {
       if (_enabledServices.contains(id)) {
         _enabledServices.remove(id);
       } else {
         _enabledServices.add(id);
         if (_pricingMap[id]!.basePrice == 0) {
-          _pricingMap[id] = _ServicePricing(basePrice: 0);
+          _pricingMap[id] = const _ServicePricing(basePrice: 0);
         }
       }
     });
   }
 
+  void _showLimitReached(String type, int limit) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.lock_outline, color: AppTheme.warning),
+            const SizedBox(width: 8),
+            const Text('Limit Reached'),
+          ],
+        ),
+        content: Text('Your current plan limits you to $limit $type. Upgrade your plan to add more.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              // Navigate to subscription plans (optional)
+            },
+            child: const Text('Upgrade Plan'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _openPricingEditor(Map<String, dynamic> service) {
     final l = LocalizationService.instance;
-    final id = service['id'] as String;
-    final pricing = _pricingMap[id]!;
+    final id = service['id'].toString();
+    final pricing = _pricingMap[id] ?? const _ServicePricing(basePrice: 0);
+    
+    // Enforcement: check features
+    final plan = _activeSubscription?['plan'] as Map<String, dynamic>?;
+    final canSetDistance = plan?['can_set_distance_surcharges'] as bool? ?? false;
+    final canUseAfterHours = plan?['can_use_after_hours'] as bool? ?? false;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -116,13 +144,19 @@ class _ProviderServicesScreenState extends State<ProviderServicesScreen>
       builder: (ctx) => _PricingEditorSheet(
         service: service,
         pricing: pricing,
+        canSetDistance: canSetDistance,
+        canUseAfterHours: canUseAfterHours,
         onSave: (updated) {
           setState(() => _pricingMap[id] = updated);
           Navigator.pop(ctx);
+          final String displayName = l.translateContent(
+            service['name_translations'] as Map<String, dynamic>? ?? {},
+            fallbackText: service['name'] as String? ?? '',
+          );
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '${l.t('pricing_saved_for')} ${service['name']}',
+                '${l.t('pricing_saved_for')} $displayName',
                 style: GoogleFonts.manrope(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -246,6 +280,10 @@ class _ProviderServicesScreenState extends State<ProviderServicesScreen>
   }
 
   Widget _buildSelectServicesTab(LocalizationService l) {
+    if (_isLoadingCategories) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -257,27 +295,30 @@ class _ProviderServicesScreenState extends State<ProviderServicesScreen>
             subtitle: 'Select all services you are able to provide',
           ),
           const SizedBox(height: 16),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              childAspectRatio: 1.4,
+          if (_allServices.isEmpty)
+            const Center(child: Text('No services found.'))
+          else
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                childAspectRatio: 1.4,
+              ),
+              itemCount: _allServices.length,
+              itemBuilder: (context, index) {
+                final service = _allServices[index];
+                final id = service['id'].toString();
+                final isEnabled = _enabledServices.contains(id);
+                return _ServiceToggleCard(
+                  service: service,
+                  isEnabled: isEnabled,
+                  onToggle: () => _toggleService(id),
+                );
+              },
             ),
-            itemCount: _allServices.length,
-            itemBuilder: (context, index) {
-              final service = _allServices[index];
-              final id = service['id'] as String;
-              final isEnabled = _enabledServices.contains(id);
-              return _ServiceToggleCard(
-                service: service,
-                isEnabled: isEnabled,
-                onToggle: () => _toggleService(id),
-              );
-            },
-          ),
           const SizedBox(height: 20),
           if (_enabledServices.isNotEmpty) ...[
             _SectionHeader(
@@ -289,8 +330,8 @@ class _ProviderServicesScreenState extends State<ProviderServicesScreen>
             ),
             const SizedBox(height: 12),
             ...(_enabledServices.map((id) {
-              final service = _allServices.firstWhere((s) => s['id'] == id);
-              final pricing = _pricingMap[id]!;
+              final service = _allServices.firstWhere((s) => s['id'].toString() == id);
+              final pricing = _pricingMap[id] ?? const _ServicePricing(basePrice: 0);
               return _QuickPriceSummaryCard(
                 service: service,
                 pricing: pricing,
@@ -305,8 +346,11 @@ class _ProviderServicesScreenState extends State<ProviderServicesScreen>
   }
 
   Widget _buildPricingRulesTab(LocalizationService l) {
+    if (_isLoadingCategories) {
+      return const Center(child: CircularProgressIndicator());
+    }
     final enabledList = _allServices
-        .where((s) => _enabledServices.contains(s['id']))
+        .where((s) => _enabledServices.contains(s['id'].toString()))
         .toList();
     if (enabledList.isEmpty) {
       return Center(
@@ -364,8 +408,8 @@ class _ProviderServicesScreenState extends State<ProviderServicesScreen>
         ),
         const SizedBox(height: 16),
         ...enabledList.map((service) {
-          final id = service['id'] as String;
-          final pricing = _pricingMap[id]!;
+          final id = service['id'].toString();
+          final pricing = _pricingMap[id] ?? const _ServicePricing(basePrice: 0);
           return Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: _ServicePricingCard(
@@ -396,22 +440,25 @@ class _ServiceToggleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = service['color'] as Color;
+    final l = LocalizationService.instance;
+    final String name = (service['name_translations'] as Map?)?[l.currentLanguageCode] ?? service['name'] ?? '';
+    final String iconEmoji = service['icon_emoji'] ?? '🔧';
+
     return GestureDetector(
       onTap: onToggle,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         decoration: BoxDecoration(
-          color: isEnabled ? color.withAlpha(20) : AppTheme.surface,
+          color: isEnabled ? AppTheme.primary.withAlpha(20) : AppTheme.surface,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: isEnabled ? color : AppTheme.outlineVariant,
+            color: isEnabled ? AppTheme.primary : AppTheme.outlineVariant,
             width: isEnabled ? 2 : 1,
           ),
           boxShadow: isEnabled
               ? [
                   BoxShadow(
-                    color: color.withAlpha(40),
+                    color: AppTheme.primary.withAlpha(40),
                     blurRadius: 8,
                     offset: const Offset(0, 3),
                   ),
@@ -431,25 +478,21 @@ class _ServiceToggleCard extends StatelessWidget {
                     padding: const EdgeInsets.all(7),
                     decoration: BoxDecoration(
                       color: isEnabled
-                          ? color.withAlpha(30)
+                          ? AppTheme.primary.withAlpha(30)
                           : AppTheme.surfaceVariant,
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Icon(
-                      service['icon'] as IconData,
-                      size: 20,
-                      color: isEnabled ? color : AppTheme.muted,
-                    ),
+                    child: Text(iconEmoji, style: const TextStyle(fontSize: 20)),
                   ),
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
                     width: 22,
                     height: 22,
                     decoration: BoxDecoration(
-                      color: isEnabled ? color : Colors.transparent,
+                      color: isEnabled ? AppTheme.primary : Colors.transparent,
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: isEnabled ? color : AppTheme.outline,
+                        color: isEnabled ? AppTheme.primary : AppTheme.outline,
                         width: 2,
                       ),
                     ),
@@ -464,11 +507,11 @@ class _ServiceToggleCard extends StatelessWidget {
                 ],
               ),
               Text(
-                service['name'] as String,
+                name,
                 style: GoogleFonts.manrope(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
-                  color: isEnabled ? color : AppTheme.onSurface,
+                  color: isEnabled ? AppTheme.primary : AppTheme.onSurface,
                 ),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -496,8 +539,10 @@ class _QuickPriceSummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = service['color'] as Color;
     final l = LocalizationService.instance;
+    final String name = (service['name_translations'] as Map?)?[l.currentLanguageCode] ?? service['name'] ?? '';
+    final String iconEmoji = service['icon_emoji'] ?? '🔧';
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -511,10 +556,10 @@ class _QuickPriceSummaryCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(7),
             decoration: BoxDecoration(
-              color: color.withAlpha(20),
+              color: AppTheme.primary.withAlpha(20),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(service['icon'] as IconData, size: 18, color: color),
+            child: Text(iconEmoji, style: const TextStyle(fontSize: 18)),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -522,7 +567,7 @@ class _QuickPriceSummaryCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  service['name'] as String,
+                  name,
                   style: GoogleFonts.manrope(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
@@ -581,9 +626,10 @@ class _ServicePricingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = service['color'] as Color;
-    final hasPrice = pricing.basePrice > 0;
     final l = LocalizationService.instance;
+    final hasPrice = pricing.basePrice > 0;
+    final String name = (service['name_translations'] as Map?)?[l.currentLanguageCode] ?? service['name'] ?? '';
+    final String iconEmoji = service['icon_emoji'] ?? '🔧';
 
     return Container(
       decoration: BoxDecoration(
@@ -605,14 +651,10 @@ class _ServicePricingCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(9),
                   decoration: BoxDecoration(
-                    color: color.withAlpha(20),
+                    color: AppTheme.primary.withAlpha(20),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(
-                    service['icon'] as IconData,
-                    size: 22,
-                    color: color,
-                  ),
+                  child: Text(iconEmoji, style: const TextStyle(fontSize: 22)),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -620,7 +662,7 @@ class _ServicePricingCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        service['name'] as String,
+                        name,
                         style: GoogleFonts.manrope(
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
@@ -850,11 +892,15 @@ class _SectionHeader extends StatelessWidget {
 class _PricingEditorSheet extends StatefulWidget {
   final Map<String, dynamic> service;
   final _ServicePricing pricing;
+  final bool canSetDistance;
+  final bool canUseAfterHours;
   final void Function(_ServicePricing) onSave;
 
   const _PricingEditorSheet({
     required this.service,
     required this.pricing,
+    required this.canSetDistance,
+    required this.canUseAfterHours,
     required this.onSave,
   });
 
@@ -928,7 +974,6 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final color = widget.service['color'] as Color;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final l = LocalizationService.instance;
 
@@ -961,14 +1006,19 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: color.withAlpha(20),
+                    color: AppTheme.primary.withAlpha(20),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(
-                    widget.service['icon'] as IconData,
-                    size: 20,
-                    color: color,
-                  ),
+                  child: widget.service['icon'] is IconData
+                      ? Icon(
+                          widget.service['icon'] as IconData,
+                          size: 20,
+                          color: AppTheme.primary,
+                        )
+                      : Text(
+                          widget.service['icon_emoji'] ?? '🔧',
+                          style: const TextStyle(fontSize: 20),
+                        ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -1032,7 +1082,7 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
                   ),
                 ),
                 TextButton.icon(
-                  onPressed: _addDistanceRule,
+                  onPressed: widget.canSetDistance ? _addDistanceRule : null,
                   icon: const Icon(Icons.add_circle_outline_rounded, size: 16),
                   label: Text(
                     'Add Rule',
@@ -1042,6 +1092,7 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
                     ),
                   ),
                   style: TextButton.styleFrom(
+                    foregroundColor: widget.canSetDistance ? AppTheme.primary : AppTheme.muted,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 8,
                       vertical: 4,
@@ -1052,6 +1103,11 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
                 ),
               ],
             ),
+            if (!widget.canSetDistance)
+               Padding(
+                 padding: const EdgeInsets.only(top: 4),
+                 child: Text('Upgrade plan to set extra distance fees', style: TextStyle(fontSize: 10, color: AppTheme.warning)),
+               ),
             const SizedBox(height: 4),
             Text(
               'Add extra fees based on how far the customer is from you',
@@ -1086,7 +1142,7 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
                   ),
                 ),
                 TextButton.icon(
-                  onPressed: _addTimeSurcharge,
+                  onPressed: widget.canUseAfterHours ? _addTimeSurcharge : null,
                   icon: const Icon(Icons.add_circle_outline_rounded, size: 16),
                   label: Text(
                     'Add Surcharge',
@@ -1096,6 +1152,7 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
                     ),
                   ),
                   style: TextButton.styleFrom(
+                    foregroundColor: widget.canUseAfterHours ? AppTheme.warning : AppTheme.muted,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 8,
                       vertical: 4,
@@ -1106,6 +1163,11 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
                 ),
               ],
             ),
+            if (!widget.canUseAfterHours)
+               Padding(
+                 padding: const EdgeInsets.only(top: 4),
+                 child: Text('Upgrade plan to set after-hours rates', style: TextStyle(fontSize: 10, color: AppTheme.warning)),
+               ),
             const SizedBox(height: 4),
             Text(
               'Add surcharges for specific time windows (e.g. night fee, peak hours)',

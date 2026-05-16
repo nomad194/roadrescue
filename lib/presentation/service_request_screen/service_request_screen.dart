@@ -30,113 +30,12 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
   ActiveHelpRequest? _activeRequest;
   RealtimeChannel? _requestSubscription;
 
+  List<Map<String, dynamic>> _dynamicCategories = [];
+  bool _isLoadingCats = true;
+
   final _descriptionController = TextEditingController();
 
-  static const List<Map<String, dynamic>> _categoryMaps = [
-    {
-      'id': 'towing',
-      'translations': {
-        'en': 'Towing',
-        'es': 'Remolque',
-        'fr': 'Remorquage',
-        'pt': 'Reboque',
-        'de': 'Abschleppen',
-        'ar': 'سحب السيارة',
-      },
-      'label': 'Towing',
-      'icon': 'local_shipping',
-      'description': 'Vehicle tow to nearest garage',
-      'avgTime': '25–45 min',
-      'vehicleSizes': [
-        'motorcycle',
-        'sedan',
-        'suv',
-        'pickup',
-        'van',
-        'large_truck',
-      ],
-    },
-    {
-      'id': 'flat_tire',
-      'translations': {
-        'en': 'Flat Tire',
-        'es': 'Llanta Ponchada',
-        'fr': 'Pneu Crevé',
-        'pt': 'Pneu Furado',
-        'de': 'Reifenpanne',
-        'ar': 'إطار مثقوب',
-      },
-      'label': 'Flat Tire',
-      'icon': 'tire_repair',
-      'description': 'Tire change or repair',
-      'avgTime': '15–25 min',
-      'vehicleSizes': ['motorcycle', 'sedan', 'suv', 'pickup'],
-    },
-    {
-      'id': 'lockout',
-      'translations': {
-        'en': 'Lockout',
-        'es': 'Apertura de Vehículo',
-        'fr': 'Ouverture de Véhicule',
-        'pt': 'Abertura de Veículo',
-        'de': 'Fahrzeugöffnung',
-        'ar': 'فتح السيارة',
-      },
-      'label': 'Lockout',
-      'icon': 'lock_open',
-      'description': 'Unlock your vehicle',
-      'avgTime': '10–20 min',
-      'vehicleSizes': ['sedan', 'suv', 'pickup', 'van'],
-    },
-    {
-      'id': 'fuel',
-      'translations': {
-        'en': 'Fuel Delivery',
-        'es': 'Entrega de Combustible',
-        'fr': 'Livraison de Carburant',
-        'pt': 'Entrega de Combustível',
-        'de': 'Kraftstofflieferung',
-        'ar': 'توصيل الوقود',
-      },
-      'label': 'Fuel Delivery',
-      'icon': 'local_gas_station',
-      'description': 'Emergency fuel drop-off',
-      'avgTime': '20–35 min',
-      'vehicleSizes': ['motorcycle', 'sedan', 'suv', 'pickup', 'van'],
-    },
-    {
-      'id': 'jump_start',
-      'translations': {
-        'en': 'Jump Start',
-        'es': 'Arranque de Batería',
-        'fr': 'Démarrage de Batterie',
-        'pt': 'Partida de Bateria',
-        'de': 'Starthilfe',
-        'ar': 'تشغيل البطارية',
-      },
-      'label': 'Jump Start',
-      'icon': 'bolt',
-      'description': 'Battery jump start',
-      'avgTime': '10–20 min',
-      'vehicleSizes': ['sedan', 'suv'],
-    },
-    {
-      'id': 'battery',
-      'translations': {
-        'en': 'Battery',
-        'es': 'Batería',
-        'fr': 'Batterie',
-        'pt': 'Bateria',
-        'de': 'Batterie',
-        'ar': 'البطارية',
-      },
-      'label': 'Battery',
-      'icon': 'battery_alert',
-      'description': 'Battery replacement',
-      'avgTime': '20–40 min',
-      'vehicleSizes': ['sedan', 'suv', 'pickup'],
-    },
-  ];
+  // Removed hardcoded _categoryMaps
 
   static const List<Map<String, dynamic>> _vehicleSizeOptions = [
     {'id': 'motorcycle', 'label': 'Motorcycle', 'emoji': '🏍️'},
@@ -149,36 +48,55 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
 
   List<Map<String, dynamic>> get _availableVehicleSizes {
     if (_selectedCategory == null) return [];
-    final cat = _categoryMaps.firstWhere(
-      (c) => c['id'] == _selectedCategory,
+    final cat = _dynamicCategories.firstWhere(
+      (c) => c['id'].toString() == _selectedCategory,
       orElse: () => {},
     );
     if (cat.isEmpty) return [];
-    final sizes = (cat['vehicleSizes'] as List<dynamic>?) ?? [];
+    final sizes = (cat['vehicle_sizes'] as List<dynamic>?) ?? [];
     return _vehicleSizeOptions.where((v) => sizes.contains(v['id'])).toList();
   }
 
   String get _selectedCategoryLabel {
     if (_selectedCategory == null) return '';
-    final cat = _categoryMaps.firstWhere(
-      (c) => c['id'] == _selectedCategory,
-      orElse: () => {'label': '', 'translations': <String, String>{}},
+    final cat = _dynamicCategories.firstWhere(
+      (c) => c['id'].toString() == _selectedCategory,
+      orElse: () => {'name': '', 'name_translations': <String, String>{}},
     );
     final l = LocalizationService.instance;
-    final translations = cat['translations'] as Map?;
+    final translations = cat['name_translations'] as Map?;
     if (translations != null) {
       return l.translateContent(
         translations.map((k, v) => MapEntry(k.toString(), v.toString())),
-        fallbackText: cat['label'] as String? ?? '',
+        fallbackText: cat['name'] as String? ?? '',
       );
     }
-    return cat['label'] as String? ?? '';
+    return cat['name'] as String? ?? '';
   }
 
   @override
   void initState() {
     super.initState();
-    _loadActiveRequest();
+    _loadInitialData();
+  }
+
+  Future<void> _loadInitialData() async {
+    await Future.wait([
+      _loadActiveRequest(),
+      _loadCategories(),
+    ]);
+  }
+
+  Future<void> _loadCategories() async {
+    if (!mounted) return;
+    setState(() => _isLoadingCats = true);
+    final cats = await SupabaseService.instance.getServiceCategories();
+    if (mounted) {
+      setState(() {
+        _dynamicCategories = cats;
+        _isLoadingCats = false;
+      });
+    }
   }
 
   @override
@@ -301,12 +219,11 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
 
     setState(() => _isSubmitting = true);
     try {
-      final serviceIcon =
-          _categoryMaps.firstWhere(
-                (c) => c['id'] == _selectedCategory,
-                orElse: () => {'icon': 'build'},
-              )['icon']
-              as String;
+      final cat = _dynamicCategories.firstWhere(
+        (c) => c['id'].toString() == _selectedCategory,
+        orElse: () => {'icon_emoji': 'build'},
+      );
+      final serviceIcon = cat['icon_emoji'] ?? 'build';
 
       final data = await SupabaseService.instance.createJobRequest(
         serviceType: _selectedCategoryLabel,
@@ -512,6 +429,16 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
     }
   }
 
+  String _getCategoryName(Map<String, dynamic> category) {
+    final l = LocalizationService.instance;
+    final translations =
+        category['name_translations'] as Map<String, dynamic>? ?? {};
+    return l.translateContent(
+      translations,
+      fallbackText: category['name'] as String? ?? '',
+    );
+  }
+
   bool get _isTablet => MediaQuery.of(context).size.width >= 600;
 
   @override
@@ -588,6 +515,9 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
   }
 
   Widget _buildPhoneLayout(LocalizationService l) {
+    if (_isLoadingCats) {
+      return const Center(child: CircularProgressIndicator());
+    }
     return SingleChildScrollView(
       physics: const ClampingScrollPhysics(),
       child: Padding(
@@ -603,7 +533,11 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
             ),
             const SizedBox(height: 12),
             ServiceCategoryGridWidget(
-              categories: _categoryMaps,
+              categories: _dynamicCategories.map((c) => {
+                'id': c['id'].toString(),
+                'label': _getCategoryName(c),
+                'icon': c['icon_emoji'] ?? 'build',
+              }).toList(),
               selectedId: _selectedCategory,
               onSelected: _onCategorySelected,
               crossAxisCount: 2,
@@ -713,6 +647,9 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
   }
 
   Widget _buildTabletLayout(LocalizationService l) {
+    if (_isLoadingCats) {
+      return const Center(child: CircularProgressIndicator());
+    }
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Row(
@@ -730,7 +667,11 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
                   ),
                   const SizedBox(height: 12),
                   ServiceCategoryGridWidget(
-                    categories: _categoryMaps,
+                    categories: _dynamicCategories.map((c) => {
+                      'id': c['id'].toString(),
+                      'label': _getCategoryName(c),
+                      'icon': c['icon_emoji'] ?? 'build',
+                    }).toList(),
                     selectedId: _selectedCategory,
                     onSelected: _onCategorySelected,
                     crossAxisCount: 3,

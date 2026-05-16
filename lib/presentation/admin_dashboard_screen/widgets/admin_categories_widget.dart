@@ -235,8 +235,10 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
                       .eq('id', category['id']);
                   
                   if (mounted) {
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    final messenger = ScaffoldMessenger.of(context);
+                    final nav = Navigator.of(context);
+                    nav.pop();
+                    messenger.showSnackBar(
                       SnackBar(
                         content: Text(
                           'Vehicle sizes updated for ${_getCategoryName(category)}',
@@ -449,10 +451,12 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
                         .eq('id', category['id']);
                   }
                   if (mounted) {
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    final messenger = ScaffoldMessenger.of(context);
+                    final nav = Navigator.of(context);
+                    nav.pop();
+                    messenger.showSnackBar(
                       SnackBar(
-                        content: Text('Category saved!'),
+                        content: const Text('Category saved!'),
                         backgroundColor: AppTheme.success,
                         behavior: SnackBarBehavior.floating,
                       ),
@@ -529,8 +533,10 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
                     .delete()
                     .eq('id', id);
                 if (mounted) {
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  final messenger = ScaffoldMessenger.of(context);
+                  final nav = Navigator.of(context);
+                  nav.pop();
+                  messenger.showSnackBar(
                     const SnackBar(
                       content: Text('Category deleted'),
                       backgroundColor: AppTheme.error,
@@ -605,7 +611,7 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
               icon: const Icon(Icons.add, size: 18),
               label: Text(
                 l.t('add_translation').contains(' ') 
-                  ? l.t('add_translation').split(' ')[0] + ' ' + l.t('categories').substring(0, l.t('categories').length - 1)
+                  ? '${l.t('add_translation').split(' ')[0]} ${l.t('categories').substring(0, l.t('categories').length - 1)}'
                   : l.t('add_plan'),
                 style: GoogleFonts.manrope(
                   fontWeight: FontWeight.w600,
