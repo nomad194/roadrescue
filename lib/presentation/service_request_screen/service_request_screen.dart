@@ -175,6 +175,15 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
       case 'in_progress':
         status = HelpRequestStatus.confirmed;
         break;
+      case 'awaiting_confirmation':
+        status = HelpRequestStatus.awaitingConfirmation;
+        break;
+      case 'awaiting_reconfirmation':
+        status = HelpRequestStatus.awaitingReconfirmation;
+        break;
+      case 'disputed':
+        status = HelpRequestStatus.disputed;
+        break;
       case 'cancelled':
         status = HelpRequestStatus.cancelled;
         break;
@@ -193,6 +202,9 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
       submittedAt:
           DateTime.tryParse(data['created_at'] as String? ?? '') ??
           DateTime.now(),
+      customerConfirmation: data['customer_confirmation'] as bool?,
+      providerConfirmation: data['provider_confirmation'] as bool?,
+      confirmationRound: (data['confirmation_round'] as num?)?.toInt() ?? 0,
       providerName: provider?['full_name'] as String?,
       providerPhone: provider?['phone'] as String?,
       providerBusiness: provider?['business_name'] as String?,

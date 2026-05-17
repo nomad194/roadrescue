@@ -245,9 +245,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
-                    v
-                        ? l.t('available_msg')
-                        : l.t('unavailable_msg'),
+                    v ? l.t('available_msg') : l.t('unavailable_msg'),
                     style: GoogleFonts.manrope(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
@@ -541,7 +539,9 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        controller.text.isEmpty ? l.t('not_set') : controller.text,
+                        controller.text.isEmpty
+                            ? l.t('not_set')
+                            : controller.text,
                         style: GoogleFonts.manrope(
                           fontSize: 14,
                           color: controller.text.isEmpty
@@ -661,16 +661,20 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
             Icons.card_membership,
             l.t('subscription_plans'),
             AppTheme.primary,
-            () =>
-                Navigator.pushReplacementNamed(context, AppRoutes.jobRequestsScreen),
+            () => Navigator.pushReplacementNamed(
+              context,
+              AppRoutes.jobRequestsScreen,
+            ),
           ),
           const Divider(height: 1, color: AppTheme.outlineVariant),
           _buildActionRow(
             Icons.build_circle_outlined,
             l.t('my_services_pricing'),
             AppTheme.primary,
-            () =>
-                Navigator.pushReplacementNamed(context, AppRoutes.jobRequestsScreen),
+            () => Navigator.pushReplacementNamed(
+              context,
+              AppRoutes.jobRequestsScreen,
+            ),
           ),
           _buildActionRow(
             Icons.help_outline_rounded,

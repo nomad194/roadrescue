@@ -13,7 +13,7 @@ class AdminTransactionsWidget extends StatefulWidget {
 
 class _AdminTransactionsWidgetState extends State<AdminTransactionsWidget> {
   String _filterStatus = 'All';
-  
+
   List<String> get _filters {
     final l = LocalizationService.instance;
     return [l.t('all'), l.t('done'), 'Pending', 'Refunded'];

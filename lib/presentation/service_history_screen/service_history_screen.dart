@@ -43,7 +43,11 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
         backgroundColor: AppTheme.surface,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, size: 18, color: AppTheme.onSurface),
+          icon: const Icon(
+            Icons.arrow_back_ios_new,
+            size: 18,
+            color: AppTheme.onSurface,
+          ),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
@@ -58,8 +62,8 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _history.isEmpty
-              ? _buildEmptyState(l)
-              : _buildHistoryList(l),
+          ? _buildEmptyState(l)
+          : _buildHistoryList(l),
     );
   }
 
@@ -68,11 +72,19 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.history_rounded, size: 64, color: AppTheme.muted.withAlpha(100)),
+          Icon(
+            Icons.history_rounded,
+            size: 64,
+            color: AppTheme.muted.withAlpha(100),
+          ),
           const SizedBox(height: 16),
           Text(
             l.t('none'),
-            style: GoogleFonts.manrope(fontSize: 16, fontWeight: FontWeight.w600, color: AppTheme.muted),
+            style: GoogleFonts.manrope(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.muted,
+            ),
           ),
         ],
       ),
@@ -86,19 +98,26 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
         final Map<String, dynamic> item = _history[index];
-        final Map<String, dynamic> job = item['job_request'] as Map<String, dynamic>? ?? {};
+        final Map<String, dynamic> job =
+            item['job_request'] as Map<String, dynamic>? ?? {};
         final String? currentUserId = SupabaseService.instance.currentUser?.id;
         final bool isProvider = currentUserId == item['provider_id'];
-        
+
         String otherParty = 'User';
         if (isProvider) {
-          otherParty = (item['customer'] as Map<String, dynamic>?)?['full_name'] ?? 'Customer';
+          otherParty =
+              (item['customer'] as Map<String, dynamic>?)?['full_name'] ??
+              'Customer';
         } else {
-          otherParty = (item['provider'] as Map<String, dynamic>?)?['business_name'] ?? 'Provider';
+          otherParty =
+              (item['provider'] as Map<String, dynamic>?)?['business_name'] ??
+              'Provider';
         }
 
-        final bool showRatingButton = (isProvider == false) && (item['customer_rating'] == null);
-        final bool showStars = (isProvider == false) && (item['customer_rating'] != null);
+        final bool showRatingButton =
+            (isProvider == false) && (item['customer_rating'] == null);
+        final bool showStars =
+            (isProvider == false) && (item['customer_rating'] != null);
 
         return Container(
           padding: const EdgeInsets.all(16),
@@ -115,11 +134,17 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
                 children: [
                   Text(
                     job['service_type'] ?? 'Service',
-                    style: GoogleFonts.manrope(fontWeight: FontWeight.w700, fontSize: 15),
+                    style: GoogleFonts.manrope(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                    ),
                   ),
                   Text(
                     '\$${(item['final_price'] as num?)?.toStringAsFixed(2) ?? '0.00'}',
-                    style: GoogleFonts.manrope(fontWeight: FontWeight.w800, color: AppTheme.primary),
+                    style: GoogleFonts.manrope(
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.primary,
+                    ),
                   ),
                 ],
               ),
@@ -133,11 +158,18 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
               const SizedBox(height: 12),
               Row(
                 children: [
-                  const Icon(Icons.calendar_today_outlined, size: 14, color: AppTheme.muted),
+                  const Icon(
+                    Icons.calendar_today_outlined,
+                    size: 14,
+                    color: AppTheme.muted,
+                  ),
                   const SizedBox(width: 6),
                   Text(
                     _formatDate(item['completed_at'] as String?),
-                    style: GoogleFonts.manrope(fontSize: 12, color: AppTheme.muted),
+                    style: GoogleFonts.manrope(
+                      fontSize: 12,
+                      color: AppTheme.muted,
+                    ),
                   ),
                   const Spacer(),
                   if (showRatingButton)
@@ -147,11 +179,16 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
                     ),
                   if (showStars)
                     Row(
-                      children: List.generate(5, (i) => Icon(
-                        Icons.star_rounded, 
-                        size: 14, 
-                        color: i < (item['customer_rating'] as int) ? Colors.amber : AppTheme.muted.withAlpha(100),
-                      )),
+                      children: List.generate(
+                        5,
+                        (i) => Icon(
+                          Icons.star_rounded,
+                          size: 14,
+                          color: i < (item['customer_rating'] as int)
+                              ? Colors.amber
+                              : AppTheme.muted.withAlpha(100),
+                        ),
+                      ),
                     ),
                 ],
               ),

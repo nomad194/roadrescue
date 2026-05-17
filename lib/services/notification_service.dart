@@ -54,7 +54,7 @@ class NotificationService {
   void startListening(String userId) async {
     _userSubscription?.unsubscribe();
     _providerSubscription?.unsubscribe();
-    
+
     // Fetch profile to check role
     final profile = await Supabase.instance.client
         .from('user_profiles')
@@ -116,7 +116,10 @@ class NotificationService {
 
     switch (status) {
       case 'quoted':
-        notifyQuoteReceived('A provider', (record['quoted_price'] as num?)?.toDouble() ?? 0.0);
+        notifyQuoteReceived(
+          'A provider',
+          (record['quoted_price'] as num?)?.toDouble() ?? 0.0,
+        );
         break;
       case 'confirmed':
         notifyBookingConfirmed('Your provider');

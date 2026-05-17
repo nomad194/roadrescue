@@ -363,6 +363,9 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
           ? customer!['avatar_url']
           : 'https://images.pexels.com/photos/1222271/pexels-photo-1222271.jpeg',
       driverImageSemanticLabel: 'Customer profile photo',
+      customerConfirmation: data['customer_confirmation'] as bool?,
+      providerConfirmation: data['provider_confirmation'] as bool?,
+      confirmationRound: (data['confirmation_round'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -388,6 +391,9 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         driverImageUrl:
             'https://images.pexels.com/photos/1222271/pexels-photo-1222271.jpeg',
         driverImageSemanticLabel: 'Customer profile photo',
+        customerConfirmation: record['customer_confirmation'] as bool?,
+        providerConfirmation: record['provider_confirmation'] as bool?,
+        confirmationRound: (record['confirmation_round'] as num?)?.toInt() ?? 0,
       ),
     );
 
@@ -411,6 +417,9 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
           ? record['avatar_url']
           : existing.driverImageUrl,
       driverImageSemanticLabel: existing.driverImageSemanticLabel,
+      customerConfirmation: record['customer_confirmation'] as bool? ?? existing.customerConfirmation,
+      providerConfirmation: record['provider_confirmation'] as bool? ?? existing.providerConfirmation,
+      confirmationRound: (record['confirmation_round'] as num?)?.toInt() ?? existing.confirmationRound,
     );
   }
 
@@ -425,6 +434,12 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         return 'en_route';
       case 'in_progress':
         return 'accepted';
+      case 'awaiting_confirmation':
+        return 'awaiting_confirmation';
+      case 'awaiting_reconfirmation':
+        return 'awaiting_reconfirmation';
+      case 'disputed':
+        return 'disputed';
       case 'completed':
         return 'completed';
       case 'cancelled':
@@ -2245,6 +2260,10 @@ class _JobRequest {
   final bool quoteSent;
   final int postedMinutesAgo;
 
+  final bool? customerConfirmation;
+  final bool? providerConfirmation;
+  final int confirmationRound;
+
   _JobRequest({
     required this.id,
     required this.serviceType,
@@ -2261,6 +2280,9 @@ class _JobRequest {
     required this.quoteSent,
     required this.driverImageUrl,
     required this.driverImageSemanticLabel,
+    this.customerConfirmation,
+    this.providerConfirmation,
+    this.confirmationRound = 0,
   });
 }
 

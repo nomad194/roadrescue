@@ -32,7 +32,7 @@ class ServiceCategoryGridWidget extends StatelessWidget {
         final cat = categories[index];
         final id = cat['id'].toString();
         final isSelected = selectedId == id;
-        
+
         return _CategoryTile(
           id: id,
           label: cat['label'] ?? '',

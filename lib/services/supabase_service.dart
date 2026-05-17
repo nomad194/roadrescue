@@ -205,6 +205,77 @@ class SupabaseService {
         .eq('id', requestId);
   }
 
+  /// Handles the complex completion confirmation logic
+  Future<void> submitCompletionResponse({
+    required String requestId,
+    required String role, // 'customer' or 'provider'
+    required bool confirmed,
+  }) async {
+    // 1. Fetch current state
+    final job = await client
+        .from('job_requests')
+        .select('job_status, customer_confirmation, provider_confirmation, confirmation_round')
+        .eq('id', requestId)
+        .single();
+
+    final String status = job['job_status'] as String;
+    bool? customerConf = job['customer_confirmation'] as bool?;
+    bool? providerConf = job['provider_confirmation'] as bool?;
+    int round = (job['confirmation_round'] as num?)?.toInt() ?? 0;
+
+    // 2. Update local tracking variables based on role
+    if (role == 'customer') {
+      customerConf = confirmed;
+    } else {
+      providerConf = confirmed;
+    }
+
+    String nextStatus = status;
+    int nextRound = round;
+
+    // ─── LOGIC ENGINE ───
+
+    if (status == 'accepted' || status == 'confirmed' || status == 'en_route' || status == 'in_progress') {
+      // First person to tap "Completed"
+      nextStatus = 'awaiting_confirmation';
+      nextRound = 1;
+    } else if (status == 'awaiting_confirmation') {
+      // Second person responding to Round 1
+      if (customerConf == true && providerConf == true) {
+        nextStatus = 'completed';
+      } else if (customerConf != null && providerConf != null) {
+        // One said Yes, one said No
+        nextStatus = 'awaiting_reconfirmation';
+        nextRound = 2;
+        // Reset confirmations for the new round
+        customerConf = null;
+        providerConf = null;
+      }
+    } else if (status == 'awaiting_reconfirmation') {
+      // Responding to Round 2
+      if (customerConf == true && providerConf == true) {
+        nextStatus = 'completed';
+      } else if (customerConf == false && providerConf == false) {
+        nextStatus = 'in_progress'; // Both agree it wasn't done
+        nextRound = 0;
+        customerConf = null;
+        providerConf = null;
+      } else if (customerConf != null && providerConf != null) {
+        // Mismatch persists after Round 2
+        nextStatus = 'disputed';
+      }
+    }
+
+    // 3. Persist changes
+    await client.from('job_requests').update({
+      'job_status': nextStatus,
+      'customer_confirmation': customerConf,
+      'provider_confirmation': providerConf,
+      'confirmation_round': nextRound,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', requestId);
+  }
+
   Future<void> submitReview({
     required String bookingId,
     required int rating,

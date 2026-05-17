@@ -4,6 +4,7 @@ import '../../../theme/app_theme.dart';
 import '../../../routes/app_routes.dart';
 import '../../../services/localization_service.dart';
 import '../../../services/notification_service.dart';
+import '../../../services/supabase_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import './active_request_banner_widget.dart';
 
@@ -32,7 +33,13 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
   bool _providerAcceptsCash = true;
   bool _providerAcceptsOnline = true;
 
-  bool get _isConfirmed => widget.request.status == HelpRequestStatus.confirmed;
+  bool get _isConfirmed =>
+      widget.request.status == HelpRequestStatus.confirmed ||
+      widget.request.status == HelpRequestStatus.awaitingConfirmation ||
+      widget.request.status == HelpRequestStatus.awaitingReconfirmation ||
+      widget.request.status == HelpRequestStatus.disputed;
+
+  bool _isSubmittingResponse = false;
 
   @override
   void initState() {
@@ -320,6 +327,18 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                     _buildWhatsAppButton(l),
                     const SizedBox(height: 12),
                   ],
+
+                  // ── SERVICE COMPLETION FLOW ────────────────────────────────────────
+                  if (_isConfirmed && widget.request.status != HelpRequestStatus.disputed) ...[
+                    _buildCompletionFlowUI(l),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // ── DISPUTE ALERT ───────────────────────────────────────────────
+                  if (widget.request.status == HelpRequestStatus.disputed) ...[
+                    _buildDisputeAlert(l),
+                    const SizedBox(height: 12),
+                  ],
                   if (widget.request.status == HelpRequestStatus.pending ||
                       widget.request.status == HelpRequestStatus.quoted)
                     _buildCancelButton(l),
@@ -517,6 +536,23 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
             'desc': 'You can submit a new help request at any time.',
           },
         ];
+      case HelpRequestStatus.awaitingConfirmation:
+      case HelpRequestStatus.awaitingReconfirmation:
+        return [
+          {
+            'icon': Icons.help_outline_rounded,
+            'title': 'Confirmation Needed',
+            'desc': 'Please confirm if the service has been completed by the provider.',
+          },
+        ];
+      case HelpRequestStatus.disputed:
+        return [
+          {
+            'icon': Icons.gavel_rounded,
+            'title': 'Job Under Review',
+            'desc': 'There is a disagreement about the completion. Admin is reviewing.',
+          },
+        ];
     }
   }
 
@@ -535,6 +571,15 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
       case HelpRequestStatus.confirmed:
         color = AppTheme.success;
         label = l.t('booking_confirmed');
+        break;
+      case HelpRequestStatus.awaitingConfirmation:
+      case HelpRequestStatus.awaitingReconfirmation:
+        color = AppTheme.secondary;
+        label = "Reviewing";
+        break;
+      case HelpRequestStatus.disputed:
+        color = AppTheme.error;
+        label = "Disputed";
         break;
       case HelpRequestStatus.cancelled:
         color = AppTheme.muted;
@@ -868,5 +913,136 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
         ),
       ),
     );
+  }
+
+  // ─── COMPLETION FLOW WIDGETS ─────────────────────────────────────────────
+
+  Widget _buildCompletionFlowUI(LocalizationService l) {
+    final status = widget.request.status;
+    final bool hasVoted = widget.request.customerConfirmation != null;
+
+    if (status == HelpRequestStatus.confirmed) {
+      return SizedBox(
+        width: double.infinity,
+        child: ElevatedButton.icon(
+          onPressed: _isSubmittingResponse ? null : () => _submitResponse(true),
+          icon: const Icon(Icons.check_circle_outline_rounded),
+          label: Text(l.t('mark_as_completed')),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.success,
+            foregroundColor: Colors.white,
+            minimumSize: const Size(double.infinity, 50),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          ),
+        ),
+      );
+    }
+
+    if (!hasVoted) {
+      return _buildPromptCard(
+        l,
+        title: status == HelpRequestStatus.awaitingReconfirmation
+            ? "⚠️ Re-confirmation Required"
+            : "Has the service been completed?",
+        subtitle: status == HelpRequestStatus.awaitingReconfirmation
+            ? "The provider disagreed. Please confirm again: was the job done?"
+            : "The provider has marked this job as finished.",
+      );
+    }
+
+    return _buildWaitingCard(l);
+  }
+
+  Widget _buildPromptCard(LocalizationService l, {required String title, required String subtitle}) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.primary.withAlpha(20),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.primary.withAlpha(100), width: 2),
+      ),
+      child: Column(
+        children: [
+          Text(title, style: GoogleFonts.manrope(fontWeight: FontWeight.w800, fontSize: 15)),
+          const SizedBox(height: 6),
+          Text(subtitle, textAlign: TextAlign.center, style: GoogleFonts.manrope(fontSize: 12, color: AppTheme.onSurfaceVariant)),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _isSubmittingResponse ? null : () => _submitResponse(false),
+                  style: OutlinedButton.styleFrom(foregroundColor: AppTheme.error, side: const BorderSide(color: AppTheme.error)),
+                  child: const Text("No, not yet"),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _isSubmittingResponse ? null : () => _submitResponse(true),
+                  style: ElevatedButton.styleFrom(backgroundColor: AppTheme.success, foregroundColor: Colors.white),
+                  child: const Text("Yes, completed"),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWaitingCard(LocalizationService l) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: AppTheme.surfaceVariant, borderRadius: BorderRadius.circular(16)),
+      child: Column(
+        children: [
+          const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+          const SizedBox(height: 12),
+          Text(
+            "Waiting for provider confirmation...",
+            style: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.muted),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDisputeAlert(LocalizationService l) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: AppTheme.errorContainer, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.error)),
+      child: Row(
+        children: [
+          const Icon(Icons.gavel_rounded, color: AppTheme.error),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("Job Disputed", style: GoogleFonts.manrope(fontWeight: FontWeight.w800, color: AppTheme.error)),
+                const Text("Both parties disagreed twice. An admin has been notified to mediate.", style: TextStyle(fontSize: 12)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _submitResponse(bool confirmed) async {
+    setState(() => _isSubmittingResponse = true);
+    try {
+      await SupabaseService.instance.submitCompletionResponse(
+        requestId: widget.request.id,
+        role: 'customer',
+        confirmed: confirmed,
+      );
+    } catch (e) {
+      debugPrint("Completion response error: $e");
+    } finally {
+      if (mounted) setState(() => _isSubmittingResponse = false);
+    }
   }
 }

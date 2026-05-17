@@ -8,6 +8,9 @@ enum HelpRequestStatus {
   pending, // submitted, waiting for provider response
   quoted, // provider sent a quote, awaiting customer acceptance
   confirmed, // customer accepted / booking confirmed
+  awaitingConfirmation, // initial completion request sent
+  awaitingReconfirmation, // disagreement round
+  disputed, // persistent disagreement
   cancelled,
 }
 
@@ -20,6 +23,11 @@ class ActiveHelpRequest {
   final String urgency;
   final HelpRequestStatus status;
   final DateTime submittedAt;
+
+  // Confirmation state
+  final bool? customerConfirmation;
+  final bool? providerConfirmation;
+  final int confirmationRound;
 
   // Provider details — only populated once confirmed
   final String? providerName;
@@ -38,6 +46,9 @@ class ActiveHelpRequest {
     required this.urgency,
     required this.status,
     required this.submittedAt,
+    this.customerConfirmation,
+    this.providerConfirmation,
+    this.confirmationRound = 0,
     this.providerName,
     this.providerPhone,
     this.providerBusiness,
@@ -65,6 +76,11 @@ class ActiveRequestBannerWidget extends StatelessWidget {
         return AppTheme.primary;
       case HelpRequestStatus.confirmed:
         return AppTheme.success;
+      case HelpRequestStatus.awaitingConfirmation:
+      case HelpRequestStatus.awaitingReconfirmation:
+        return AppTheme.secondary;
+      case HelpRequestStatus.disputed:
+        return AppTheme.error;
       case HelpRequestStatus.cancelled:
         return AppTheme.muted;
     }
@@ -79,6 +95,12 @@ class ActiveRequestBannerWidget extends StatelessWidget {
         return l.t('quote_received');
       case HelpRequestStatus.confirmed:
         return l.t('provider_on_way');
+      case HelpRequestStatus.awaitingConfirmation:
+        return "Completion Requested";
+      case HelpRequestStatus.awaitingReconfirmation:
+        return "Confirm Completion";
+      case HelpRequestStatus.disputed:
+        return "Job Disputed";
       case HelpRequestStatus.cancelled:
         return l.t('cancel_request');
     }
@@ -92,6 +114,11 @@ class ActiveRequestBannerWidget extends StatelessWidget {
         return Icons.request_quote_rounded;
       case HelpRequestStatus.confirmed:
         return Icons.directions_car_rounded;
+      case HelpRequestStatus.awaitingConfirmation:
+      case HelpRequestStatus.awaitingReconfirmation:
+        return Icons.help_outline_rounded;
+      case HelpRequestStatus.disputed:
+        return Icons.gavel_rounded;
       case HelpRequestStatus.cancelled:
         return Icons.cancel_outlined;
     }

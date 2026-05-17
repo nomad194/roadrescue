@@ -12,7 +12,7 @@ class LocationCardWidget extends StatefulWidget {
 
 class _LocationCardWidgetState extends State<LocationCardWidget>
     with SingleTickerProviderStateMixin {
-  // TODO: Replace with [Riverpod/Bloc] for production — use geolocator for real GPS
+  // Default location placeholder
   bool _isDetecting = true;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -131,7 +131,7 @@ class _LocationCardWidgetState extends State<LocationCardWidget>
           if (!_isDetecting)
             TextButton(
               onPressed: () {
-                // TODO: Replace with [Riverpod/Bloc] for production — open map picker
+                // Action placeholder
               },
               style: TextButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

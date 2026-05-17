@@ -379,7 +379,9 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        controller.text.isEmpty ? l.t('not_set') : controller.text,
+                        controller.text.isEmpty
+                            ? l.t('not_set')
+                            : controller.text,
                         style: GoogleFonts.manrope(
                           fontSize: 14,
                           color: controller.text.isEmpty

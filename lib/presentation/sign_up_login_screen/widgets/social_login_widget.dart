@@ -40,7 +40,7 @@ class SocialLoginWidget extends StatelessWidget {
                 icon: Icons.g_mobiledata_rounded,
                 iconColor: const Color(0xFFEA4335),
                 onTap: () {
-                  // TODO: Replace with [Riverpod/Bloc] for production — Google Sign-In
+                  // Google Sign-In placeholder
                 },
               ),
             ),
@@ -51,7 +51,7 @@ class SocialLoginWidget extends StatelessWidget {
                 icon: Icons.facebook_rounded,
                 iconColor: const Color(0xFF1877F2),
                 onTap: () {
-                  // TODO: Replace with [Riverpod/Bloc] for production — Facebook Sign-In
+                  // Facebook Sign-In placeholder
                 },
               ),
             ),
@@ -62,7 +62,7 @@ class SocialLoginWidget extends StatelessWidget {
                 icon: Icons.apple_rounded,
                 iconColor: AppTheme.onSurface,
                 onTap: () {
-                  // TODO: Replace with [Riverpod/Bloc] for production — Apple Sign-In
+                  // Apple Sign-In placeholder
                 },
               ),
             ),

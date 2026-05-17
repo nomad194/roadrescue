@@ -240,19 +240,24 @@ class LocalizationService extends ChangeNotifier {
       'cancel_request': 'Cancel Request',
       'whatsapp_chat': 'WhatsApp Chat',
       'what_do_you_need': 'What do you need?',
-      'select_service_subtitle': 'Select the service that matches your situation',
+      'select_service_subtitle':
+          'Select the service that matches your situation',
       'vehicle_size_subtitle': 'Select your vehicle type for accurate pricing',
       'additional_details': 'Additional Details',
-      'describe_situation_hint': 'Describe your situation (vehicle model, issue details, special instructions)…',
+      'describe_situation_hint':
+          'Describe your situation (vehicle model, issue details, special instructions)…',
       'urgency_level': 'Urgency Level',
       'standard_urgency': 'Standard',
       'urgent_urgency': 'Urgent',
       'no_immediate_danger': 'No immediate danger',
       'safety_concern': 'Safety concern',
-      'urgent_request_info': 'Urgent requests are prioritized to providers. Standard response is typically 25–45 min.',
+      'urgent_request_info':
+          'Urgent requests are prioritized to providers. Standard response is typically 25–45 min.',
       'request_submitted': 'Request Submitted!',
-      'searching_providers_info': "Nearby providers are being notified. You'll receive quotes within minutes.",
-      'whatsapp_info_after_confirm': 'WhatsApp chat will be available once a provider confirms your booking.',
+      'searching_providers_info':
+          "Nearby providers are being notified. You'll receive quotes within minutes.",
+      'whatsapp_info_after_confirm':
+          'WhatsApp chat will be available once a provider confirms your booking.',
       'track_my_request': 'Track My Request',
       'help_request_cancelled': 'Help request cancelled.',
       'detecting_location': 'Detecting your location…',
@@ -278,7 +283,8 @@ class LocalizationService extends ChangeNotifier {
       'active': 'Active',
       'today': 'Today',
       'no_job_requests': 'No job requests found',
-      'new_jobs_info': 'New jobs matching your services will appear here. Make sure your availability is turned on.',
+      'new_jobs_info':
+          'New jobs matching your services will appear here. Make sure your availability is turned on.',
       'update_services': 'Update Services',
       'select_job_detail': 'Select a job request to send a quote',
       'archive_job': 'Archive Job',
@@ -286,7 +292,8 @@ class LocalizationService extends ChangeNotifier {
       'on_my_way': 'On My Way',
       'navigate': 'Navigate',
       'en_route_info': 'En Route — GPS Navigation Unlocked',
-      'status_updated_en_route': 'Status updated to En Route. Customer notified!',
+      'status_updated_en_route':
+          'Status updated to En Route. Customer notified!',
       'miles': 'miles',
       'performance': 'Performance',
       'jobs_done': 'Jobs Done',
@@ -488,19 +495,25 @@ class LocalizationService extends ChangeNotifier {
       'cancel_request': 'Cancelar Solicitud',
       'whatsapp_chat': 'Chat de WhatsApp',
       'what_do_you_need': '¿Qué necesitas?',
-      'select_service_subtitle': 'Selecciona el servicio que mejor se adapte a tu situación',
-      'vehicle_size_subtitle': 'Selecciona el tamaño de tu vehículo para un precio exacto',
+      'select_service_subtitle':
+          'Selecciona el servicio que mejor se adapte a tu situación',
+      'vehicle_size_subtitle':
+          'Selecciona el tamaño de tu vehículo para un precio exacto',
       'additional_details': 'Detalles adicionales',
-      'describe_situation_hint': 'Describe tu situación (modelo de vehículo, detalles del problema, instrucciones especiales)...',
+      'describe_situation_hint':
+          'Describe tu situación (modelo de vehículo, detalles del problema, instrucciones especiales)...',
       'urgency_level': 'Nivel de urgencia',
       'standard_urgency': 'Estándar',
       'urgent_urgency': 'Urgente',
       'no_immediate_danger': 'Sin peligro inmediato',
       'safety_concern': 'Problema de seguridad',
-      'urgent_request_info': 'Las solicitudes urgentes tienen prioridad. La respuesta estándar suele ser de 25 a 45 min.',
+      'urgent_request_info':
+          'Las solicitudes urgentes tienen prioridad. La respuesta estándar suele ser de 25 a 45 min.',
       'request_submitted': '¡Solicitud enviada!',
-      'searching_providers_info': 'Se está notificando a los proveedores cercanos. Recibirás cotizaciones en minutos.',
-      'whatsapp_info_after_confirm': 'El chat de WhatsApp estará disponible una vez que un proveedor confirme tu reserva.',
+      'searching_providers_info':
+          'Se está notificando a los proveedores cercanos. Recibirás cotizaciones en minutos.',
+      'whatsapp_info_after_confirm':
+          'El chat de WhatsApp estará disponible una vez que un proveedor confirme tu reserva.',
       'track_my_request': 'Seguir mi solicitud',
       'help_request_cancelled': 'Solicitud de ayuda cancelada.',
       'detecting_location': 'Detectando tu ubicación...',
@@ -524,15 +537,18 @@ class LocalizationService extends ChangeNotifier {
       'active': 'Activo',
       'today': 'Hoy',
       'no_job_requests': 'No se encontraron solicitudes',
-      'new_jobs_info': 'Aquí aparecerán los nuevos trabajos. Asegúrate de tener activada tu disponibilidad.',
+      'new_jobs_info':
+          'Aquí aparecerán los nuevos trabajos. Asegúrate de tener activada tu disponibilidad.',
       'update_services': 'Actualizar servicios',
-      'select_job_detail': 'Selecciona una solicitud para enviar una cotización',
+      'select_job_detail':
+          'Selecciona una solicitud para enviar una cotización',
       'archive_job': 'Archivar trabajo',
       'quote_sent_notif': 'Cotización enviada',
       'on_my_way': 'En camino',
       'navigate': 'Navegar',
       'en_route_info': 'En camino — Navegación GPS desbloqueada',
-      'status_updated_en_route': 'Estado actualizado a En camino. ¡Cliente notificado!',
+      'status_updated_en_route':
+          'Estado actualizado a En camino. ¡Cliente notificado!',
       'miles': 'millas',
       'performance': 'Rendimiento',
       'jobs_done': 'Trabajos realizados',
@@ -564,7 +580,8 @@ class LocalizationService extends ChangeNotifier {
       'app_config_title': 'Configuración de la aplicación',
       'manage_settings': 'Gestionar todos los ajustes y contenidos',
       'general_settings': 'Ajustes generales',
-      'api_keys_warning': 'Las claves API son sensibles. No las compartas nunca públicamente.',
+      'api_keys_warning':
+          'Las claves API son sensibles. No las compartas nunca públicamente.',
       'integration_keys': 'Claves de integración',
       'logo_image_url': 'URL de la imagen del logotipo',
       'brand_colors': 'Colores de marca',
@@ -599,7 +616,8 @@ class LocalizationService extends ChangeNotifier {
       'service_provider': 'Proveedor de servicios',
       'verified': 'Verificado',
       'invalid_amount': 'Monto de pago no válido',
-      'payment_init_failed': 'Fallo al inicializar el pago. Por favor, inténtelo de nuevo.',
+      'payment_init_failed':
+          'Fallo al inicializar el pago. Por favor, inténtelo de nuevo.',
       'retry_msg': 'Reintentar',
       'notifications': 'Notificaciones',
       'new_job_request': 'Nueva Solicitud de Trabajo',

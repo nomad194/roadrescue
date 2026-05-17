@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import './services/localization_service.dart';
 import './services/notification_service.dart';
 import './services/supabase_service.dart';
+import './services/theme_service.dart';
 import './widgets/custom_error_widget.dart';
 import 'core/app_export.dart';
 
@@ -46,6 +47,12 @@ void main() async {
     await NotificationService.instance.initialize();
   } catch (e) {
     debugPrint('Failed to initialize notifications: $e');
+  }
+
+  try {
+    await ThemeService.instance.initialize();
+  } catch (e) {
+    debugPrint('Failed to initialize theme: $e');
   }
 
   bool hasShownError = false;
@@ -88,15 +95,19 @@ class SetupRequiredApp extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.settings_suggest_rounded,
-                    size: 80, color: Color(0xFF6366F1)),
+                const Icon(
+                  Icons.settings_suggest_rounded,
+                  size: 80,
+                  color: Color(0xFF6366F1),
+                ),
                 const SizedBox(height: 24),
                 const Text(
                   'RoadRescue Setup Required',
                   style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF1E1B4B)),
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF1E1B4B),
+                  ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 12),
@@ -116,15 +127,23 @@ class SetupRequiredApp extends StatelessWidget {
                   child: const Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('How to fix:',
-                          style: TextStyle(fontWeight: FontWeight.w700)),
+                      Text(
+                        'How to fix:',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
                       SizedBox(height: 8),
-                      Text('1. Go to your Supabase Dashboard',
-                          style: TextStyle(fontSize: 13)),
-                      Text('2. Copy Project URL and Anon Key',
-                          style: TextStyle(fontSize: 13)),
-                      Text('3. Add them to your build settings or code',
-                          style: TextStyle(fontSize: 13)),
+                      Text(
+                        '1. Go to your Supabase Dashboard',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                      Text(
+                        '2. Copy Project URL and Anon Key',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                      Text(
+                        '3. Add them to your build settings or code',
+                        style: TextStyle(fontSize: 13),
+                      ),
                     ],
                   ),
                 ),
@@ -152,7 +171,9 @@ class _MyAppState extends State<MyApp> {
     super.initState();
 
     // Set up notification listener based on auth state
-    _authSubscription = SupabaseService.instance.authStateChanges.listen((data) {
+    _authSubscription = SupabaseService.instance.authStateChanges.listen((
+      data,
+    ) {
       final user = data.session?.user;
       if (user != null) {
         NotificationService.instance.startListening(user.id);
@@ -177,16 +198,22 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: LocalizationService.instance,
+      listenable: Listenable.merge([
+        LocalizationService.instance,
+        ThemeService.instance,
+      ]),
       builder: (context, _) {
         final currentLocale = LocalizationService.instance.currentLocale;
-        
+        final themeData = AppTheme.buildTheme(
+          primary: ThemeService.instance.primaryColor,
+          secondary: ThemeService.instance.secondaryColor,
+        );
+
         return Sizer(
           builder: (context, orientation, screenType) {
             return MaterialApp(
               title: 'roadrescue',
-              theme: AppTheme.lightTheme,
-              darkTheme: AppTheme.darkTheme,
+              theme: themeData,
               themeMode: ThemeMode.light,
               locale: currentLocale,
               supportedLocales: LocalizationService.supportedLanguages.keys

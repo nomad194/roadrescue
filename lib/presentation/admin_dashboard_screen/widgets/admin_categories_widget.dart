@@ -233,7 +233,7 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
                       .from('service_categories')
                       .update({'vehicle_sizes': selected})
                       .eq('id', category['id']);
-                  
+
                   if (mounted) {
                     final messenger = ScaffoldMessenger.of(context);
                     final nav = Navigator.of(context);
@@ -304,8 +304,9 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
       }
     }
 
-    final iconController =
-        TextEditingController(text: category?['icon_emoji'] ?? '');
+    final iconController = TextEditingController(
+      text: category?['icon_emoji'] ?? '',
+    );
     bool isActive = category?['is_active'] ?? true;
 
     showDialog(
@@ -429,7 +430,8 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
                 );
                 if (!hasName) return;
 
-                final primaryName = nameTranslations['en'] ?? nameTranslations.values.first;
+                final primaryName =
+                    nameTranslations['en'] ?? nameTranslations.values.first;
                 final categoryData = {
                   'name': primaryName,
                   'name_translations': nameTranslations,
@@ -503,7 +505,7 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
         backgroundColor: AppTheme.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
-          '${l.t('delete')} ${l.t('categories').substring(0, l.t('categories').length-1)}', // Hacky singular
+          '${l.t('delete')} ${l.t('categories').substring(0, l.t('categories').length - 1)}', // Hacky singular
           style: GoogleFonts.manrope(
             fontWeight: FontWeight.w700,
             fontSize: 18,
@@ -610,9 +612,9 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
               onPressed: () => _showAddEditDialog(),
               icon: const Icon(Icons.add, size: 18),
               label: Text(
-                l.t('add_translation').contains(' ') 
-                  ? '${l.t('add_translation').split(' ')[0]} ${l.t('categories').substring(0, l.t('categories').length - 1)}'
-                  : l.t('add_plan'),
+                l.t('add_translation').contains(' ')
+                    ? '${l.t('add_translation').split(' ')[0]} ${l.t('categories').substring(0, l.t('categories').length - 1)}'
+                    : l.t('add_plan'),
                 style: GoogleFonts.manrope(
                   fontWeight: FontWeight.w600,
                   fontSize: 14,
@@ -646,7 +648,8 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
               final cat = _categories[index];
-              final vehicleSizes = (cat['vehicle_sizes'] as List<dynamic>?) ?? [];
+              final vehicleSizes =
+                  (cat['vehicle_sizes'] as List<dynamic>?) ?? [];
               final displayName = _getCategoryName(cat);
               final isActive = cat['is_active'] ?? true;
               return Container(
@@ -740,105 +743,111 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
                             ),
                           ),
                         ),
-                      const SizedBox(width: 6),
-                      IconButton(
-                        onPressed: () => _showVehicleSizeDialog(cat),
-                        icon: const Text('🚗', style: TextStyle(fontSize: 16)),
-                        tooltip: l.t('vehicle_size'),
-                        style: IconButton.styleFrom(
-                          backgroundColor: AppTheme.secondaryContainer,
-                          minimumSize: const Size(34, 34),
-                          padding: EdgeInsets.zero,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      IconButton(
-                        onPressed: () => _showAddEditDialog(category: cat),
-                        icon: const Icon(
-                          Icons.edit_outlined,
-                          size: 18,
-                          color: AppTheme.primary,
-                        ),
-                        style: IconButton.styleFrom(
-                          backgroundColor: AppTheme.primaryContainer,
-                          minimumSize: const Size(34, 34),
-                          padding: EdgeInsets.zero,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      IconButton(
-                        onPressed: () => _deleteCategory(cat['id']),
-                        icon: const Icon(
-                          Icons.delete_outline,
-                          size: 18,
-                          color: AppTheme.error,
-                        ),
-                        style: IconButton.styleFrom(
-                          backgroundColor: AppTheme.errorContainer,
-                          minimumSize: const Size(34, 34),
-                          padding: EdgeInsets.zero,
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (vehicleSizes.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    const Divider(height: 1, color: AppTheme.outlineVariant),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.directions_car_outlined,
-                          size: 14,
-                          color: AppTheme.onSurfaceVariant,
-                        ),
                         const SizedBox(width: 6),
-                        Text(
-                          '${l.t('vehicle_size')}:',
-                          style: GoogleFonts.manrope(
-                            fontSize: 12,
-                            color: AppTheme.onSurfaceVariant,
+                        IconButton(
+                          onPressed: () => _showVehicleSizeDialog(cat),
+                          icon: const Text(
+                            '🚗',
+                            style: TextStyle(fontSize: 16),
+                          ),
+                          tooltip: l.t('vehicle_size'),
+                          style: IconButton.styleFrom(
+                            backgroundColor: AppTheme.secondaryContainer,
+                            minimumSize: const Size(34, 34),
+                            padding: EdgeInsets.zero,
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Wrap(
-                            spacing: 4,
-                            runSpacing: 4,
-                            children: vehicleSizes.map((sizeId) {
-                              final vehicle = _vehicleSizeOptions.firstWhere(
-                                (v) => v['id'] == sizeId,
-                                orElse: () => {'emoji': '🚗', 'label': sizeId},
-                              );
-                              return Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.primaryContainer,
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  '${vehicle['emoji']} ${vehicle['label']}',
-                                  style: GoogleFonts.manrope(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppTheme.primary,
-                                  ),
-                                ),
-                              );
-                            }).toList(),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          onPressed: () => _showAddEditDialog(category: cat),
+                          icon: const Icon(
+                            Icons.edit_outlined,
+                            size: 18,
+                            color: AppTheme.primary,
+                          ),
+                          style: IconButton.styleFrom(
+                            backgroundColor: AppTheme.primaryContainer,
+                            minimumSize: const Size(34, 34),
+                            padding: EdgeInsets.zero,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          onPressed: () => _deleteCategory(cat['id']),
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            size: 18,
+                            color: AppTheme.error,
+                          ),
+                          style: IconButton.styleFrom(
+                            backgroundColor: AppTheme.errorContainer,
+                            minimumSize: const Size(34, 34),
+                            padding: EdgeInsets.zero,
                           ),
                         ),
                       ],
                     ),
+                    if (vehicleSizes.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      const Divider(height: 1, color: AppTheme.outlineVariant),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.directions_car_outlined,
+                            size: 14,
+                            color: AppTheme.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${l.t('vehicle_size')}:',
+                            style: GoogleFonts.manrope(
+                              fontSize: 12,
+                              color: AppTheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Wrap(
+                              spacing: 4,
+                              runSpacing: 4,
+                              children: vehicleSizes.map((sizeId) {
+                                final vehicle = _vehicleSizeOptions.firstWhere(
+                                  (v) => v['id'] == sizeId,
+                                  orElse: () => {
+                                    'emoji': '🚗',
+                                    'label': sizeId,
+                                  },
+                                );
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.primaryContainer,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    '${vehicle['emoji']} ${vehicle['label']}',
+                                    style: GoogleFonts.manrope(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppTheme.primary,
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
-                ],
-              ),
-            );
-          },
-        ),
+                ),
+              );
+            },
+          ),
       ],
     );
   }

@@ -86,9 +86,7 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
   void _showAddEditDialog({Map<String, dynamic>? zone}) {
     final l = LocalizationService.instance;
     final nameController = TextEditingController(text: zone?['name'] ?? '');
-    final radiusController = TextEditingController(
-      text: zone?['radius'] ?? '',
-    );
+    final radiusController = TextEditingController(text: zone?['radius'] ?? '');
     String selectedTz = zone?['timezone'] ?? _timezones.first;
     bool isActive = zone?['active'] ?? true;
 
@@ -251,8 +249,9 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
                       'id': _zones.length + 1,
                       'name': nameController.text.trim(),
                       'timezone': selectedTz,
-                      'radius':
-                          radiusController.text.trim().isEmpty ? '10' : radiusController.text.trim(),
+                      'radius': radiusController.text.trim().isEmpty
+                          ? '10'
+                          : radiusController.text.trim(),
                       'active': isActive,
                       'providers': 0,
                     });
@@ -263,8 +262,9 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
                         ...zone,
                         'name': nameController.text.trim(),
                         'timezone': selectedTz,
-                        'radius':
-                            radiusController.text.trim().isEmpty ? zone['radius'] : radiusController.text.trim(),
+                        'radius': radiusController.text.trim().isEmpty
+                            ? zone['radius']
+                            : radiusController.text.trim(),
                         'active': isActive,
                       };
                     }

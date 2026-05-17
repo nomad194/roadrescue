@@ -24,6 +24,10 @@ class JobRequest {
   final bool quoteSent;
   final int postedMinutesAgo;
 
+  final bool? customerConfirmation;
+  final bool? providerConfirmation;
+  final int confirmationRound;
+
   const JobRequest({
     required this.id,
     required this.serviceType,
@@ -39,6 +43,9 @@ class JobRequest {
     required this.status,
     required this.quoteSent,
     required this.postedMinutesAgo,
+    this.customerConfirmation,
+    this.providerConfirmation,
+    this.confirmationRound = 0,
   });
 }
 
@@ -61,6 +68,7 @@ class JobRequestCardWidget extends StatefulWidget {
 class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
   bool _isExpanded = false;
   bool _markingEnRoute = false;
+  bool _isSubmittingResponse = false;
   String _distanceUnit = 'mi';
 
   @override
@@ -175,6 +183,81 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
 
   void _openNavigation() {
     MapUtils.openGoogleMaps(widget.job.address);
+  }
+
+  Future<void> _submitCompletionResponse(bool confirmed) async {
+    setState(() => _isSubmittingResponse = true);
+    try {
+      await SupabaseService.instance.submitCompletionResponse(
+        requestId: widget.job.id,
+        role: 'provider',
+        confirmed: confirmed,
+      );
+      widget.onStatusChanged?.call();
+    } catch (_) {}
+    if (mounted) setState(() => _isSubmittingResponse = false);
+  }
+
+  Widget _buildProviderCompletionPrompt(LocalizationService l) {
+    final bool isReconfirm = widget.job.status == 'awaiting_reconfirmation';
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.primary.withAlpha(20),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.primary.withAlpha(80), width: 1.5),
+      ),
+      child: Column(
+        children: [
+          Text(
+            isReconfirm ? "⚠️ Dispute Resolution" : "Has the service been completed?",
+            style: GoogleFonts.manrope(fontWeight: FontWeight.w800, fontSize: 13),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            isReconfirm ? "Customer disagreed. Please confirm again." : "Confirm you have finished the work.",
+            style: GoogleFonts.manrope(fontSize: 11, color: AppTheme.onSurfaceVariant),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _SmallActionButton(
+                  label: "No",
+                  color: AppTheme.error,
+                  onTap: () => _submitCompletionResponse(false),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _SmallActionButton(
+                  label: "Yes",
+                  color: AppTheme.success,
+                  onTap: () => _submitCompletionResponse(true),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDisputeAlert(LocalizationService l) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: AppTheme.errorContainer, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppTheme.error)),
+      child: Row(
+        children: [
+          const Icon(Icons.gavel_rounded, color: AppTheme.error, size: 18),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text("Job Disputed. Admin has been notified.", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.error)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -486,37 +569,32 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
                         onTap: _openNavigation,
                       )
                     else
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppTheme.successContainer,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.check_rounded,
-                              size: 14,
-                              color: AppTheme.success,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              l.t('quote_sent_notif'),
-                              style: GoogleFonts.manrope(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: AppTheme.success,
-                              ),
-                            ),
-                          ],
-                        ),
+                      const SizedBox.shrink(),
+
+                    // ── Completion Flow Trigger ──
+                    if (isEnRoute || isConfirmed) ...[
+                      const SizedBox(width: 8),
+                      _ActionButton(
+                        label: _isSubmittingResponse ? '...' : 'Done',
+                        icon: Icons.check_circle_outline_rounded,
+                        color: AppTheme.success,
+                        onTap: _isSubmittingResponse ? () {} : () => _submitCompletionResponse(true),
                       ),
+                    ],
                   ],
                 ),
+
+                // ── Completion Prompts (Mismatches) ──
+                if ((widget.job.status == 'awaiting_confirmation' || widget.job.status == 'awaiting_reconfirmation') && widget.job.providerConfirmation == null) ...[
+                  const SizedBox(height: 12),
+                  _buildProviderCompletionPrompt(l),
+                ],
+
+                // ── Dispute Alert ──
+                if (widget.job.status == 'disputed') ...[
+                  const SizedBox(height: 12),
+                  _buildDisputeAlert(l),
+                ],
 
                 // ── On My Way expanded section (shown when confirmed) ──
                 if (isConfirmed && _isExpanded) ...[
@@ -673,6 +751,28 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SmallActionButton extends StatelessWidget {
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _SmallActionButton({required this.label, required this.color, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(8)),
+        alignment: Alignment.center,
+        child: Text(label, style: GoogleFonts.manrope(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white)),
       ),
     );
   }

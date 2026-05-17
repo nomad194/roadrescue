@@ -14,12 +14,17 @@ class ReviewDialogWidget extends StatefulWidget {
     required this.onSubmitted,
   });
 
-  static void show(BuildContext context, String bookingId, VoidCallback onSubmitted) {
+  static void show(
+    BuildContext context,
+    String bookingId,
+    VoidCallback onSubmitted,
+  ) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => ReviewDialogWidget(bookingId: bookingId, onSubmitted: onSubmitted),
+      builder: (ctx) =>
+          ReviewDialogWidget(bookingId: bookingId, onSubmitted: onSubmitted),
     );
   }
 
@@ -67,11 +72,17 @@ class _ReviewDialogWidgetState extends State<ReviewDialogWidget> {
             margin: const EdgeInsets.symmetric(vertical: 12),
             width: 40,
             height: 4,
-            decoration: BoxDecoration(color: AppTheme.outline, borderRadius: BorderRadius.circular(2)),
+            decoration: BoxDecoration(
+              color: AppTheme.outline,
+              borderRadius: BorderRadius.circular(2),
+            ),
           ),
           Text(
             'Rate Your Experience',
-            style: GoogleFonts.manrope(fontSize: 18, fontWeight: FontWeight.w800),
+            style: GoogleFonts.manrope(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
           ),
           const SizedBox(height: 16),
           Row(
@@ -83,7 +94,9 @@ class _ReviewDialogWidgetState extends State<ReviewDialogWidget> {
                 icon: Icon(
                   Icons.star_rounded,
                   size: 40,
-                  color: starIndex <= _rating ? Colors.amber : AppTheme.muted.withAlpha(80),
+                  color: starIndex <= _rating
+                      ? Colors.amber
+                      : AppTheme.muted.withAlpha(80),
                 ),
               );
             }),
@@ -96,7 +109,10 @@ class _ReviewDialogWidgetState extends State<ReviewDialogWidget> {
               hintText: 'Tell us about the service…',
               filled: true,
               fillColor: AppTheme.surfaceVariant,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
             ),
           ),
           const SizedBox(height: 24),
@@ -108,11 +124,16 @@ class _ReviewDialogWidgetState extends State<ReviewDialogWidget> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.primary,
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
-              child: _isSubmitting 
+              child: _isSubmitting
                   ? const CircularProgressIndicator(color: Colors.white)
-                  : Text(l.t('success'), style: GoogleFonts.manrope(fontWeight: FontWeight.w700)),
+                  : Text(
+                      l.t('success'),
+                      style: GoogleFonts.manrope(fontWeight: FontWeight.w700),
+                    ),
             ),
           ),
         ],

@@ -12,7 +12,7 @@ class AdminProvidersWidget extends StatefulWidget {
 
 class _AdminProvidersWidgetState extends State<AdminProvidersWidget> {
   String _filterStatus = 'All';
-  
+
   List<String> get _filters {
     final l = LocalizationService.instance;
     return [l.t('all'), 'Pending', l.t('verified'), 'Suspended'];
