@@ -45,7 +45,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     },
     {
       'label': LocalizationService.instance.t('payment'),
-      'icon': Icons.credit_card_outlined
+      'icon': Icons.credit_card_outlined,
     },
     {
       'label': LocalizationService.instance.t('transactions'),
@@ -97,91 +97,118 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           ),
         ),
         title: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
               padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
-                color: AppTheme.primaryContainer,
+                color: Theme.of(context).primaryColor.withAlpha(26),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.admin_panel_settings,
                 size: 18,
-                color: AppTheme.primary,
+                color: Theme.of(context).primaryColor,
               ),
             ),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  LocalizationService.instance.t('admin_panel'),
-                  style: GoogleFonts.manrope(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.onSurface,
+            const SizedBox(width: 8),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    LocalizationService.instance.t('admin_panel'),
+                    style: GoogleFonts.manrope(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.onSurface,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                Text(
-                  LocalizationService.instance.t('roadrescue_management'),
-                  style: GoogleFonts.manrope(
-                    fontSize: 11,
-                    color: AppTheme.onSurfaceVariant,
+                  Text(
+                    'Management',
+                    style: GoogleFonts.manrope(
+                      fontSize: 10,
+                      color: AppTheme.onSurfaceVariant,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
         actions: [
-          const LanguageSelectorWidget(),
-          const SizedBox(width: 8),
-          IconButton(
-            onPressed: () async {
-              final nav = Navigator.of(context);
-              await SupabaseService.instance.signOut();
-              if (!nav.context.mounted) return;
-              nav.pushNamedAndRemoveUntil(
-                AppRoutes.signUpLoginScreen,
-                (route) => false,
-              );
-            },
+          PopupMenuButton<String>(
             icon: const Icon(
-              Icons.logout_rounded,
-              size: 20,
-              color: AppTheme.error,
+              Icons.more_vert_rounded,
+              size: 22,
+              color: AppTheme.onSurface,
             ),
-            tooltip: LocalizationService.instance.t('sign_out'),
+            onSelected: (val) async {
+              if (val == 'language') {
+                LanguageSelectorWidget.showLanguageDialog(context);
+              } else if (val == 'sign_out') {
+                final nav = Navigator.of(context);
+                await SupabaseService.instance.signOut();
+                if (!nav.context.mounted) return;
+                nav.pushNamedAndRemoveUntil(
+                  AppRoutes.signUpLoginScreen,
+                  (r) => false,
+                );
+              }
+            },
+            itemBuilder: (ctx) => [
+              PopupMenuItem(
+                value: 'language',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.translate,
+                      size: 18,
+                      color: Theme.of(context).primaryColor,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(LocalizationService.instance.t('language')),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'sign_out',
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.logout_rounded,
+                      size: 18,
+                      color: AppTheme.error,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(LocalizationService.instance.t('sign_out')),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          Container(
-            margin: const EdgeInsets.only(right: 16),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: AppTheme.successContainer,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: const BoxDecoration(
-                    color: AppTheme.success,
-                    shape: BoxShape.circle,
-                  ),
+          const SizedBox(width: 4),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppTheme.successContainer.withAlpha(150),
+                  borderRadius: BorderRadius.circular(6),
                 ),
-                const SizedBox(width: 5),
-                Text(
-                  LocalizationService.instance.t('admin'),
+                child: Text(
+                  LocalizationService.instance.t('admin').toUpperCase(),
                   style: GoogleFonts.manrope(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
                     color: AppTheme.success,
                   ),
                 ),
-              ],
+              ),
             ),
           ),
         ],
@@ -221,17 +248,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                         children: [
                           Icon(
                             tabs[index]['icon'] as IconData,
-                            size: 15,
+                            size: 13,
                             color: isSelected
                                 ? Colors.white
                                 : AppTheme.onSurfaceVariant,
                           ),
-                          const SizedBox(width: 6),
+                          const SizedBox(width: 4),
                           Text(
                             tabs[index]['label'] as String,
                             style: GoogleFonts.manrope(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
                               color: isSelected
                                   ? Colors.white
                                   : AppTheme.onSurfaceVariant,
@@ -249,14 +276,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       ),
       body: TabBarView(
         controller: _tabController,
+        physics: const BouncingScrollPhysics(),
         children: const [
-          _TabContent(child: AdminCategoriesWidget()),
-          _TabContent(child: AdminGeoZonesWidget()),
-          _TabContent(child: AdminProvidersWidget()),
-          _TabContent(child: AdminPricingWidget()),
-          _TabContent(child: AdminPaymentsWidget()),
-          _TabContent(child: AdminTransactionsWidget()),
-          _TabContent(child: AdminAppConfigWidget()),
+          RepaintBoundary(child: _TabContent(child: AdminCategoriesWidget())),
+          RepaintBoundary(child: _TabContent(child: AdminGeoZonesWidget())),
+          RepaintBoundary(child: _TabContent(child: AdminProvidersWidget())),
+          RepaintBoundary(child: _TabContent(child: AdminPricingWidget())),
+          RepaintBoundary(child: _TabContent(child: AdminPaymentsWidget())),
+          RepaintBoundary(child: _TabContent(child: AdminTransactionsWidget())),
+          RepaintBoundary(child: _TabContent(child: AdminAppConfigWidget())),
         ],
       ),
     );

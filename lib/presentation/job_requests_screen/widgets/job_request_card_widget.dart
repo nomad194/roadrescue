@@ -6,6 +6,7 @@ import '../../../widgets/custom_image_widget.dart';
 import '../../../services/supabase_service.dart';
 import '../../../services/localization_service.dart';
 import '../../../services/notification_service.dart';
+import '../../../utils/map_utils.dart';
 
 class JobRequest {
   final String id;
@@ -173,28 +174,7 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
   }
 
   void _openNavigation() {
-    final encodedAddress = Uri.encodeComponent(widget.job.address);
-    // Google Maps URL — works on both Android and iOS
-    final googleMapsUrl =
-        'https://www.google.com/maps/dir/?api=1&destination=$encodedAddress&travelmode=driving';
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Opening navigation to ${widget.job.address}...',
-          style: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600),
-        ),
-        backgroundColor: AppTheme.primary,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),
-        action: SnackBarAction(
-          label: 'Open',
-          textColor: Colors.white,
-          onPressed: () => debugPrint('Navigate to: $googleMapsUrl'),
-        ),
-      ),
-    );
-    debugPrint('Navigation URL: $googleMapsUrl');
+    MapUtils.openGoogleMaps(widget.job.address);
   }
 
   @override
@@ -276,15 +256,19 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Text(
-                      widget.job.id,
-                      style: GoogleFonts.manrope(
-                        fontSize: 11,
-                        color: AppTheme.muted,
-                        fontWeight: FontWeight.w500,
-                        fontFeatures: const [FontFeature.tabularFigures()],
+                    Flexible(
+                      child: Text(
+                        widget.job.id,
+                        style: GoogleFonts.manrope(
+                          fontSize: 11,
+                          color: AppTheme.muted,
+                          fontWeight: FontWeight.w500,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    const SizedBox(width: 8),
                     const Spacer(),
                     if (isUrgent)
                       Container(
@@ -485,7 +469,9 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
                       )
                     else if (isConfirmed)
                       _ActionButton(
-                        label: _markingEnRoute ? l.t('loading') : l.t('on_my_way'),
+                        label: _markingEnRoute
+                            ? l.t('loading')
+                            : l.t('on_my_way'),
                         icon: _markingEnRoute
                             ? Icons.hourglass_empty_rounded
                             : Icons.directions_car_rounded,
@@ -651,12 +637,15 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
                 color: AppTheme.success,
               ),
               const SizedBox(width: 8),
-              Text(
-                l.t('en_route_info'),
-                style: GoogleFonts.manrope(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.success,
+              Expanded(
+                child: Text(
+                  l.t('en_route_info'),
+                  style: GoogleFonts.manrope(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.success,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
@@ -678,28 +667,7 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
                   label: 'Apple Maps',
                   icon: Icons.directions_rounded,
                   color: const Color(0xFF0891B2),
-                  onTap: () {
-                    final encodedAddress = Uri.encodeComponent(
-                      widget.job.address,
-                    );
-                    final appleMapsUrl =
-                        'https://maps.apple.com/?daddr=$encodedAddress&dirflg=d';
-                    debugPrint('Apple Maps URL: $appleMapsUrl');
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text(
-                          'Opening Apple Maps...',
-                          style: TextStyle(fontSize: 13),
-                        ),
-                        backgroundColor: const Color(0xFF0891B2),
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        margin: const EdgeInsets.all(16),
-                      ),
-                    );
-                  },
+                  onTap: () => MapUtils.openAppleMaps(widget.job.address),
                 ),
               ),
             ],

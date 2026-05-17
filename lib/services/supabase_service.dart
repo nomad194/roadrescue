@@ -30,21 +30,53 @@ class SupabaseService {
   User? get currentUser => client.auth.currentUser;
   Stream<AuthState> get authStateChanges => client.auth.onAuthStateChange;
 
+  // ─── AUTH ────────────────────────────────────────────────────────────────
+
+  Future<AuthResponse> signIn({
+    required String email,
+    required String password,
+  }) async {
+    return await client.auth.signInWithPassword(
+      email: email,
+      password: password,
+    );
+  }
+
+  Future<AuthResponse> signUp({
+    required String email,
+    required String password,
+    required String fullName,
+    required String phone,
+    required String role,
+  }) async {
+    final response = await client.auth.signUp(
+      email: email,
+      password: password,
+      data: {'full_name': fullName, 'phone': phone, 'role': role},
+    );
+    return response;
+  }
+
   Future<void> signOut() async {
     await client.auth.signOut();
   }
 
   // ─── JOBS ────────────────────────────────────────────────────────────────
 
-  Future<List<Map<String, dynamic>>> getProviderJobRequests() async {
+  Future<List<Map<String, dynamic>>> getProviderJobRequests({List<String>? categories}) async {
     final userId = currentUser?.id;
     if (userId == null) return [];
 
     try {
-      final response = await client
+      var query = client
           .from('job_requests')
-          .select('*, customer:customer_id(full_name, phone, avatar_url)')
-          .order('created_at', ascending: false);
+          .select('*, customer:customer_id(full_name, phone, avatar_url)');
+
+      if (categories != null && categories.isNotEmpty) {
+        query = query.inFilter('service_type', categories);
+      }
+
+      final response = await query.order('created_at', ascending: false);
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
       debugPrint('Error fetching jobs: $e');
@@ -57,16 +89,49 @@ class SupabaseService {
     if (userId == null) return null;
 
     try {
+      // Use limit(1) instead of maybeSingle() to handle edge cases where multiple active rows might exist (common in dev/testing)
       final response = await client
           .from('job_requests')
-          .select('*, provider:provider_id(id, full_name, phone, business_name, avatar_url)')
+          .select(
+            '*, provider:provider_id(id, full_name, phone, business_name, avatar_url)',
+          )
           .or('customer_id.eq.$userId,provider_id.eq.$userId')
-          .inFilter('job_status', ['pending', 'quoted', 'accepted', 'confirmed', 'en_route', 'in_progress'])
+          .inFilter('job_status', [
+            'pending',
+            'quoted',
+            'accepted',
+            'confirmed',
+            'en_route',
+            'in_progress',
+          ])
           .order('created_at', ascending: false)
-          .maybeSingle();
-      return response;
-    } catch (_) {
+          .limit(1);
+
+      if (response.isEmpty) return null;
+      return response.first;
+    } catch (e) {
+      debugPrint('Error fetching active job: $e');
       return null;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getJobHistory() async {
+    final userId = currentUser?.id;
+    if (userId == null) return [];
+
+    try {
+      final response = await client
+          .from('job_requests')
+          .select(
+            '*, customer:customer_id(full_name), provider:provider_id(full_name, business_name, avatar_url)',
+          )
+          .or('customer_id.eq.$userId,provider_id.eq.$userId')
+          .eq('job_status', 'completed')
+          .order('created_at', ascending: false);
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('Error fetching history: $e');
+      return [];
     }
   }
 
@@ -107,31 +172,59 @@ class SupabaseService {
     final userId = currentUser?.id;
     if (userId == null) return;
 
-    await client.from('job_requests').update({
-      'provider_id': userId,
-      'quoted_price': price,
-      'eta_minutes': etaMinutes,
-      'accepted_payment_methods': paymentMethods,
-      'job_status': 'quoted',
-      'updated_at': DateTime.now().toIso8601String(),
-    }).eq('id', requestId);
+    await client
+        .from('job_requests')
+        .update({
+          'provider_id': userId,
+          'quoted_price': price,
+          'eta_minutes': etaMinutes,
+          'accepted_payment_methods': paymentMethods,
+          'job_status': 'quoted',
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .eq('id', requestId);
   }
 
   Future<void> cancelJobRequest(String requestId) async {
     await client
         .from('job_requests')
-        .update({'job_status': 'cancelled', 'updated_at': DateTime.now().toIso8601String()})
+        .update({
+          'job_status': 'cancelled',
+          'updated_at': DateTime.now().toIso8601String(),
+        })
         .eq('id', requestId);
   }
 
   Future<void> markEnRoute(String requestId) async {
     await client
         .from('job_requests')
-        .update({'job_status': 'en_route', 'updated_at': DateTime.now().toIso8601String()})
+        .update({
+          'job_status': 'en_route',
+          'updated_at': DateTime.now().toIso8601String(),
+        })
         .eq('id', requestId);
   }
 
-  RealtimeChannel subscribeToJobRequestUpdates(Function(Map<String, dynamic> record) onUpdate) {
+  Future<void> submitReview({
+    required String bookingId,
+    required int rating,
+    required String review,
+  }) async {
+    final userId = currentUser?.id;
+    if (userId == null) return;
+
+    await client.from('reviews').insert({
+      'job_request_id': bookingId,
+      'reviewer_id': userId,
+      'rating': rating,
+      'comment': review,
+      'created_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  RealtimeChannel subscribeToJobRequestUpdates(
+    Function(Map<String, dynamic> record) onUpdate,
+  ) {
     final channel = client.channel('public:job_requests');
     channel
         .onPostgresChanges(
@@ -148,7 +241,10 @@ class SupabaseService {
     return channel;
   }
 
-  RealtimeChannel subscribeToJobRequest(String requestId, Function(Map<String, dynamic> record) onUpdate) {
+  RealtimeChannel subscribeToJobRequest(
+    String requestId,
+    Function(Map<String, dynamic> record) onUpdate,
+  ) {
     final channel = client.channel('job_request:$requestId');
     channel
         .onPostgresChanges(
@@ -204,7 +300,9 @@ class SupabaseService {
   // ─── PROVIDER SETTINGS ───────────────────────────────────────────────────
 
   /// Fetch all configured services and pricing for a provider
-  Future<List<Map<String, dynamic>>> getProviderServices(String providerId) async {
+  Future<List<Map<String, dynamic>>> getProviderServices(
+    String providerId,
+  ) async {
     try {
       final response = await client
           .from('provider_services')
@@ -217,19 +315,50 @@ class SupabaseService {
   }
 
   /// Batch save all enabled services and their pricing
-  Future<void> saveProviderServices(String providerId, List<Map<String, dynamic>> services) async {
+  Future<void> saveProviderServices(
+    String providerId,
+    List<Map<String, dynamic>> services,
+  ) async {
     // 1. Delete existing for this provider
-    await client.from('provider_services').delete().eq('provider_id', providerId);
-    
+    await client
+        .from('provider_services')
+        .delete()
+        .eq('provider_id', providerId);
+
     // 2. Insert new ones
     if (services.isNotEmpty) {
-      await client.from('provider_services').insert(
-        services.map((s) => {
-          ...s,
-          'provider_id': providerId,
-          'updated_at': DateTime.now().toIso8601String(),
-        }).toList()
-      );
+      await client
+          .from('provider_services')
+          .insert(
+            services
+                .map(
+                  (s) => {
+                    ...s,
+                    'provider_id': providerId,
+                    'updated_at': DateTime.now().toIso8601String(),
+                  },
+                )
+                .toList(),
+          );
+    }
+  }
+
+  // ─── SETTINGS ────────────────────────────────────────────────────────────
+
+  Future<Map<String, String>> getAppSettings(List<String> keys) async {
+    try {
+      final response = await client
+          .from('app_settings')
+          .select('setting_key, setting_value')
+          .inFilter('setting_key', keys);
+
+      final Map<String, String> settings = {
+        for (final row in response as List)
+          row['setting_key'] as String: row['setting_value'] as String,
+      };
+      return settings;
+    } catch (_) {
+      return {};
     }
   }
 
@@ -249,9 +378,6 @@ class SupabaseService {
   }
 
   Future<void> updateProfile(String userId, Map<String, dynamic> data) async {
-    await client
-        .from('user_profiles')
-        .update(data)
-        .eq('id', userId);
+    await client.from('user_profiles').update(data).eq('id', userId);
   }
 }

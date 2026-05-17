@@ -12,7 +12,8 @@ class FaqTosScreen extends StatefulWidget {
   State<FaqTosScreen> createState() => _FaqTosScreenState();
 }
 
-class _FaqTosScreenState extends State<FaqTosScreen> with SingleTickerProviderStateMixin {
+class _FaqTosScreenState extends State<FaqTosScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   bool _isLoading = true;
   String _tosContent = '';
@@ -27,13 +28,17 @@ class _FaqTosScreenState extends State<FaqTosScreen> with SingleTickerProviderSt
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    final settings = await SupabaseService.instance.getAppSettings(['terms_of_service', 'faq_content']);
+    final settings = await SupabaseService.instance.getAppSettings([
+      'terms_of_service',
+      'faq_content',
+    ]);
     if (mounted) {
       setState(() {
         _tosContent = settings['terms_of_service'] ?? 'No terms available.';
         try {
-          if (settings['faq_content'] != null) {
-            final decoded = json.decode(settings['faq_content']);
+          final faqJson = settings['faq_content'];
+          if (faqJson != null) {
+            final decoded = json.decode(faqJson);
             if (decoded is List) {
               _faqs = decoded;
             } else {
@@ -42,7 +47,10 @@ class _FaqTosScreenState extends State<FaqTosScreen> with SingleTickerProviderSt
           } else {
             // Default FAQs if none in DB
             _faqs = [
-              {'q': 'How quickly can I get help?', 'a': 'Most providers arrive within 15–45 minutes.'},
+              {
+                'q': 'How quickly can I get help?',
+                'a': 'Most providers arrive within 15–45 minutes.',
+              },
               {'q': 'How do I pay?', 'a': 'You can pay via card or cash.'},
             ];
           }
@@ -63,7 +71,11 @@ class _FaqTosScreenState extends State<FaqTosScreen> with SingleTickerProviderSt
         backgroundColor: AppTheme.surface,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, size: 18, color: AppTheme.onSurface),
+          icon: const Icon(
+            Icons.arrow_back_ios_new,
+            size: 18,
+            color: AppTheme.onSurface,
+          ),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
@@ -81,21 +93,23 @@ class _FaqTosScreenState extends State<FaqTosScreen> with SingleTickerProviderSt
           ],
         ),
       ),
-      body: _isLoading 
+      body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : TabBarView(
               controller: _tabController,
-              children: [
-                _buildFaqTab(l),
-                _buildTosTab(),
-              ],
+              children: [_buildFaqTab(l), _buildTosTab()],
             ),
     );
   }
 
   Widget _buildFaqTab(LocalizationService l) {
     if (_faqs.isEmpty) {
-      return Center(child: Text('No FAQs found', style: GoogleFonts.manrope(color: AppTheme.muted)));
+      return Center(
+        child: Text(
+          'No FAQs found',
+          style: GoogleFonts.manrope(color: AppTheme.muted),
+        ),
+      );
     }
     return ListView.builder(
       padding: const EdgeInsets.all(16),
@@ -103,11 +117,17 @@ class _FaqTosScreenState extends State<FaqTosScreen> with SingleTickerProviderSt
       itemBuilder: (context, index) {
         final faq = _faqs[index];
         return ExpansionTile(
-          title: Text(faq['q'] ?? '', style: GoogleFonts.manrope(fontWeight: FontWeight.w600)),
+          title: Text(
+            faq['q'] ?? '',
+            style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
+          ),
           children: [
             Padding(
               padding: const EdgeInsets.all(16),
-              child: Text(faq['a'] ?? '', style: GoogleFonts.manrope(fontSize: 14, height: 1.5)),
+              child: Text(
+                faq['a'] ?? '',
+                style: GoogleFonts.manrope(fontSize: 14, height: 1.5),
+              ),
             ),
           ],
         );
@@ -120,7 +140,11 @@ class _FaqTosScreenState extends State<FaqTosScreen> with SingleTickerProviderSt
       padding: const EdgeInsets.all(20),
       child: Text(
         _tosContent,
-        style: GoogleFonts.manrope(fontSize: 14, height: 1.6, color: AppTheme.onSurface),
+        style: GoogleFonts.manrope(
+          fontSize: 14,
+          height: 1.6,
+          color: AppTheme.onSurface,
+        ),
       ),
     );
   }

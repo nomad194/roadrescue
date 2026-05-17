@@ -53,7 +53,7 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
         orElse: () => {},
       );
       if (cat.isEmpty) return [];
-      
+
       final sizesRaw = cat['vehicle_sizes'];
       List<dynamic> sizes = [];
       if (sizesRaw is List) {
@@ -63,7 +63,7 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
           sizes = json.decode(sizesRaw) as List;
         } catch (_) {}
       }
-      
+
       return _vehicleSizeOptions.where((v) => sizes.contains(v['id'])).toList();
     } catch (_) {
       return [];
@@ -92,10 +92,7 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
 
   Future<void> _loadInitialData() async {
     try {
-      await Future.wait([
-        _loadActiveRequest(),
-        _loadCategories(),
-      ]);
+      await Future.wait([_loadActiveRequest(), _loadCategories()]);
     } catch (e) {
       debugPrint('Error loading initial data: $e');
       if (mounted) {
@@ -126,10 +123,18 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
   }
 
   Future<void> _loadActiveRequest() async {
-    final data = await SupabaseService.instance.getActiveJobRequest();
-    if (data != null && mounted) {
-      setState(() => _activeRequest = _mapToActiveRequest(data));
-      _subscribeToRequest(data['id'] as String);
+    try {
+      final data = await SupabaseService.instance.getActiveJobRequest();
+      if (data != null && mounted) {
+        final request = _mapToActiveRequest(data);
+        setState(() => _activeRequest = request);
+        _subscribeToRequest(data['id']?.toString() ?? '');
+        debugPrint('Active request loaded: ${request.id} - ${request.status}');
+      } else if (mounted) {
+        debugPrint('No active request found.');
+      }
+    } catch (e) {
+      debugPrint('Error loading active request: $e');
     }
   }
 
@@ -141,8 +146,16 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
         if (!mounted) return;
         // Re-fetch with provider join for full data
         final updated = await SupabaseService.instance.getActiveJobRequest();
+        // Only update if we actually got a valid record back to prevent the "disappearing" bug
         if (updated != null && mounted) {
           setState(() => _activeRequest = _mapToActiveRequest(updated));
+        } else if (mounted) {
+          // If it was cancelled or completed, it might actually be gone
+          // But we check the record status first
+          final status = record['job_status'] as String? ?? '';
+          if (status == 'cancelled' || status == 'completed') {
+            setState(() => _activeRequest = null);
+          }
         }
       },
     );
@@ -158,6 +171,7 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
         break;
       case 'confirmed':
       case 'accepted':
+      case 'en_route':
       case 'in_progress':
         status = HelpRequestStatus.confirmed;
         break;
@@ -452,12 +466,14 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
     final l = LocalizationService.instance;
     final translationsRaw = category['name_translations'];
     Map<String, dynamic> translations = {};
-    
+
     if (translationsRaw is Map) {
       translations = translationsRaw.map((k, v) => MapEntry(k.toString(), v));
     } else if (translationsRaw is String) {
       try {
-        translations = (json.decode(translationsRaw) as Map).map((k, v) => MapEntry(k.toString(), v));
+        translations = (json.decode(translationsRaw) as Map).map(
+          (k, v) => MapEntry(k.toString(), v),
+        );
       } catch (_) {}
     }
 
@@ -488,10 +504,11 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
         title: Text(
           l.t('request_help'),
           style: GoogleFonts.manrope(
-            fontSize: 18,
+            fontSize: 17,
             fontWeight: FontWeight.w700,
             color: AppTheme.onSurface,
           ),
+          overflow: TextOverflow.ellipsis,
         ),
         actions: [
           IconButton(
@@ -503,21 +520,41 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
               color: AppTheme.primary,
             ),
             tooltip: l.t('my_profile'),
+            visualDensity: VisualDensity.compact,
           ),
           Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: TextButton.icon(
-              onPressed: () => Navigator.pushNamedAndRemoveUntil(
+            padding: const EdgeInsets.only(right: 8),
+            child: InkWell(
+              onTap: () => Navigator.pushNamedAndRemoveUntil(
                 context,
                 AppRoutes.jobRequestsScreen,
                 (r) => false,
               ),
-              icon: const Icon(Icons.work_outline_rounded, size: 16),
-              label: Text(
-                'Provider View',
-                style: GoogleFonts.manrope(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withAlpha(20),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.work_outline_rounded,
+                      size: 14,
+                      color: AppTheme.primary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Provider',
+                      style: GoogleFonts.manrope(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.primary,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -622,10 +659,7 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSectionHeader(
-          l.t('vehicle_size'),
-          l.t('vehicle_size_subtitle'),
-        ),
+        _buildSectionHeader(l.t('vehicle_size'), l.t('vehicle_size_subtitle')),
         const SizedBox(height: 12),
         SizedBox(
           height: 90,

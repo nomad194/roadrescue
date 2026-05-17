@@ -12,29 +12,46 @@ class ProviderStatsHeaderWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = LocalizationService.instance;
-    // Compute stats from jobs
+    // Compute stats from jobs (using dynamic to handle both JobRequest and _JobRequest types safely)
     int newJobsCount = 0;
     int quotedJobsCount = 0;
     int activeJobsCount = 0;
     double todayEarnings = 0;
 
     for (final j in jobs) {
-      final status = j['job_status'] ?? '';
-      final value = (j['quoted_price'] as num?)?.toDouble() ?? 0.0;
-      if (status == 'pending') newJobsCount++;
-      if (status == 'quoted') quotedJobsCount++;
-      if (status == 'accepted' ||
-          status == 'confirmed' ||
-          status == 'en_route' ||
-          status == 'in_progress') {
-        activeJobsCount++;
+      try {
+        final status = j.status ?? '';
+        final value = (j.estimatedValue as num?)?.toDouble() ?? 0.0;
+        if (status == 'new' || status == 'pending') newJobsCount++;
+        if (status == 'quoted') quotedJobsCount++;
+        if (status == 'accepted' ||
+            status == 'confirmed' ||
+            status == 'en_route' ||
+            status == 'in_progress') {
+          activeJobsCount++;
+        }
+        if (status == 'completed') todayEarnings += value;
+      } catch (e) {
+        // Fallback for Map type if any (though dashboard now uses JobRequest class)
+        if (j is Map) {
+          final status = j['job_status'] ?? '';
+          final value = (j['quoted_price'] as num?)?.toDouble() ?? 0.0;
+          if (status == 'pending') newJobsCount++;
+          if (status == 'quoted') quotedJobsCount++;
+          if (status == 'accepted' ||
+              status == 'confirmed' ||
+              status == 'en_route' ||
+              status == 'in_progress') {
+            activeJobsCount++;
+          }
+          if (status == 'completed') todayEarnings += value;
+        }
       }
-      if (status == 'completed') todayEarnings += value;
     }
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [Color(0xFF1A56DB), Color(0xFF1D4ED8)],
@@ -51,12 +68,14 @@ class ProviderStatsHeaderWidget extends StatelessWidget {
         ],
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Expanded(
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
@@ -66,6 +85,8 @@ class ProviderStatsHeaderWidget extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                         color: Colors.white,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 2),
                     Row(
@@ -79,11 +100,15 @@ class ProviderStatsHeaderWidget extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 5),
-                        Text(
-                          '${l.t('available_at')} Austin, TX',
-                          style: GoogleFonts.manrope(
-                            fontSize: 11,
-                            color: Colors.white.withAlpha(204),
+                        Expanded(
+                          child: Text(
+                            '${l.t('available_at')} Austin, TX',
+                            style: GoogleFonts.manrope(
+                              fontSize: 11,
+                              color: Colors.white.withAlpha(204),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
@@ -91,17 +116,16 @@ class ProviderStatsHeaderWidget extends StatelessWidget {
                   ],
                 ),
               ),
+              const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.white.withAlpha(38),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: Colors.white.withAlpha(77)),
                 ),
                 child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     const Icon(
                       Icons.star_rounded,
@@ -117,13 +141,6 @@ class ProviderStatsHeaderWidget extends StatelessWidget {
                         color: Colors.white,
                       ),
                     ),
-                    Text(
-                      ' (142)',
-                      style: GoogleFonts.manrope(
-                        fontSize: 11,
-                        color: Colors.white.withAlpha(179),
-                      ),
-                    ),
                   ],
                 ),
               ),
@@ -134,7 +151,7 @@ class ProviderStatsHeaderWidget extends StatelessWidget {
             children: [
               _StatItem(
                 value: '$newJobsCount',
-                label: l.t('new_jobs'),
+                label: l.t('new_jobs').split(' ')[0],
                 color: const Color(0xFFFBBF24),
               ),
               _StatDivider(),

@@ -22,14 +22,14 @@ class JobRequestsScreen extends StatefulWidget {
 class _JobRequestsScreenState extends State<JobRequestsScreen>
     with TickerProviderStateMixin {
   bool _isLoading = true;
-  String _selectedStatusFilter = 'new';
+  String _selectedStatusFilter = 'active';
   int _currentTabIndex = 0;
 
   late AnimationController _listController;
   RealtimeChannel? _jobSubscription;
 
   List<_JobRequest> _jobs = [];
-  
+
   // Services State
   List<Map<String, dynamic>> _allServices = [];
   bool _isLoadingCategories = true;
@@ -52,9 +52,10 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
 
   List<_JobRequest> get _filteredJobs {
     return _jobs.where((job) {
-      final matchesStatus =
-          _selectedStatusFilter == 'all' || job.status == _selectedStatusFilter;
-      return matchesStatus;
+      if (_selectedStatusFilter == 'active') {
+        return job.status == 'en_route';
+      }
+      return job.status == _selectedStatusFilter;
     }).toList();
   }
 
@@ -92,7 +93,15 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   Future<void> _loadJobs() async {
     setState(() => _isLoading = true);
     try {
-      final data = await SupabaseService.instance.getProviderJobRequests();
+      // Filter jobs by enabled categories
+      final activeCategoryNames = _enabledServices.map((id) {
+        final cat = _allServices.firstWhere((s) => s['id'].toString() == id);
+        return cat['name'] as String;
+      }).toList();
+
+      final data = await SupabaseService.instance.getProviderJobRequests(
+        categories: activeCategoryNames.isNotEmpty ? activeCategoryNames : null,
+      );
       if (mounted) {
         setState(() {
           _jobs = data.map(_mapToJobRequest).toList();
@@ -126,7 +135,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   Future<void> _loadSubscription() async {
     final userId = SupabaseService.instance.currentUser?.id;
     if (userId == null) return;
-    
+
     final sub = await SupabaseService.instance.getActiveSubscription(userId);
     if (mounted) {
       setState(() {
@@ -138,7 +147,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
               'max_categories': 1,
               'can_set_distance_surcharges': false,
               'can_use_after_hours': false,
-            }
+            },
           };
         }
       });
@@ -155,25 +164,36 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         for (final config in configs) {
           final id = config['category_id'].toString();
           _enabledServices.add(id);
-          
-          final distanceRules = (config['distance_rules'] as List?)?.map((r) => _DistanceRule(
-            fromMiles: (r['from'] as num).toDouble(),
-            toMiles: r['to'] != null ? (r['to'] as num).toDouble() : null,
-            extraFee: (r['fee'] as num).toDouble(),
-          )).toList() ?? [];
 
-          final timeSurcharges = (config['time_surcharges'] as List?)?.map((s) => _TimeSurcharge(
-            label: s['label'] ?? '',
-            startHour: s['start'] as int,
-            endHour: s['end'] as int,
-            amount: (s['amount'] as num).toDouble(),
-            isPercent: s['is_percent'] as bool,
-          )).toList() ?? [];
+          final distanceRules = (config['distance_rules'] as List?)
+                  ?.map(
+                    (r) => _DistanceRule(
+                      fromMiles: (r['from'] as num).toDouble(),
+                      toMiles: r['to'] != null ? (r['to'] as num).toDouble() : null,
+                      extraFee: (r['fee'] as num).toDouble(),
+                    ),
+                  )
+                  .toList() ??
+              [];
+
+          final timeSurcharges = (config['time_surcharges'] as List?)
+                  ?.map(
+                    (s) => _TimeSurcharge(
+                      label: s['label'] ?? '',
+                      startHour: s['start'] as int,
+                      endHour: s['end'] as int,
+                      amount: (s['amount'] as num).toDouble(),
+                      isPercent: s['is_percent'] as bool,
+                    ),
+                  )
+                  .toList() ??
+              [];
 
           _pricingMap[id] = _ServicePricing(
             basePrice: (config['base_price'] as num).toDouble(),
             distanceRules: distanceRules,
             timeSurcharges: timeSurcharges,
+            supportedVehicleSizes: List<String>.from(config['supported_vehicle_sizes'] ?? []),
           );
         }
       });
@@ -188,22 +208,30 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
           .select()
           .eq('is_active', true)
           .order('price_monthly', ascending: true);
-      
+
       // Also fetch dynamic highlight color & unit
       final settingsRes = await Supabase.instance.client
           .from('app_settings')
           .select('setting_key, setting_value')
-          .inFilter('setting_key', ['current_plan_highlight_color', 'distance_unit']);
+          .inFilter('setting_key', [
+            'current_plan_highlight_color',
+            'distance_unit',
+          ]);
 
       if (mounted) {
         setState(() {
           _availablePlans = List<Map<String, dynamic>>.from(response);
-          
+
           for (final row in settingsRes) {
             if (row['setting_key'] == 'current_plan_highlight_color') {
               try {
-                final hex = (row['setting_value'] as String).replaceFirst('#', '');
-                _dynamicCurrentPlanColor = Color(int.parse('FF$hex', radix: 16));
+                final hex = (row['setting_value'] as String).replaceFirst(
+                  '#',
+                  '',
+                );
+                _dynamicCurrentPlanColor = Color(
+                  int.parse('FF$hex', radix: 16),
+                );
               } catch (_) {}
             } else if (row['setting_key'] == 'distance_unit') {
               _distanceUnit = row['setting_value'] ?? 'mi';
@@ -228,7 +256,10 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
           .eq('id', userId)
           .maybeSingle();
       if (res != null && mounted) {
-        setState(() => _serviceRange = (res['service_range_miles'] as num?)?.toDouble() ?? 25.0);
+        setState(
+          () => _serviceRange =
+              (res['service_range_miles'] as num?)?.toDouble() ?? 25.0,
+        );
       }
     } catch (_) {}
   }
@@ -243,7 +274,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
           .from('user_profiles')
           .update({'service_range_miles': value.toInt()})
           .eq('id', userId);
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -256,7 +287,10 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to update range'), backgroundColor: AppTheme.error),
+          const SnackBar(
+            content: Text('Failed to update range'),
+            backgroundColor: AppTheme.error,
+          ),
         );
       }
     } finally {
@@ -271,13 +305,34 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
       record,
     ) {
       if (!mounted) return;
+
+      // Filter by enabled categories
+      final activeCategoryNames = _enabledServices.map((id) {
+        final cat = _allServices.firstWhere((s) => s['id'].toString() == id);
+        return cat['name'] as String;
+      }).toList();
+
+      final String serviceType = record['service_type'] as String? ?? '';
+      if (activeCategoryNames.isNotEmpty && !activeCategoryNames.contains(serviceType)) {
+        return; // Ignore if not an active category for this provider
+      }
+
       final updatedJob = _mapToJobRequestFromRecord(record);
       setState(() {
         final idx = _jobs.indexWhere((j) => j.id == updatedJob.id);
         if (idx != -1) {
           _jobs[idx] = updatedJob;
         } else {
-          _loadJobs();
+          // Silent reload without showing loading skeleton
+          SupabaseService.instance.getProviderJobRequests(
+            categories: activeCategoryNames.isNotEmpty ? activeCategoryNames : null,
+          ).then((data) {
+            if (mounted) {
+              setState(() {
+                _jobs = data.map(_mapToJobRequest).toList();
+              });
+            }
+          });
         }
       });
     });
@@ -380,9 +435,13 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   }
 
   int _minutesAgo(String? isoString) {
-    if (isoString == null) return 0;
+    if (isoString == null) {
+      return 0;
+    }
     final dt = DateTime.tryParse(isoString);
-    if (dt == null) return 0;
+    if (dt == null) {
+      return 0;
+    }
     return DateTime.now().difference(dt).inMinutes;
   }
 
@@ -429,7 +488,9 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
             const Text('Limit Reached'),
           ],
         ),
-        content: Text('Your current plan limits you to $limit $type. Upgrade your plan to add more.'),
+        content: Text(
+          'Your current plan limits you to $limit $type. Upgrade your plan to add more.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -451,9 +512,10 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     final l = LocalizationService.instance;
     final id = service['id'].toString();
     final pricing = _pricingMap[id] ?? const _ServicePricing(basePrice: 0);
-    
+
     final plan = _activeSubscription?['plan'] as Map<String, dynamic>?;
-    final canSetDistance = plan?['can_set_distance_surcharges'] as bool? ?? false;
+    final canSetDistance =
+        plan?['can_set_distance_surcharges'] as bool? ?? false;
     final canUseAfterHours = plan?['can_use_after_hours'] as bool? ?? false;
 
     showModalBottomSheet(
@@ -499,22 +561,34 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         servicesToSave.add({
           'category_id': int.tryParse(id),
           'base_price': pricing.basePrice,
-          'distance_rules': pricing.distanceRules.map((r) => {
-            'from': r.fromMiles,
-            'to': r.toMiles,
-            'fee': r.extraFee,
-          }).toList(),
-          'time_surcharges': pricing.timeSurcharges.map((s) => {
-            'label': s.label,
-            'start': s.startHour,
-            'end': s.endHour,
-            'amount': s.amount,
-            'is_percent': s.isPercent,
-          }).toList(),
+          'supported_vehicle_sizes': pricing.supportedVehicleSizes,
+          'distance_rules': pricing.distanceRules
+              .map(
+                (r) => {
+                  'from': r.fromMiles,
+                  'to': r.toMiles,
+                  'fee': r.extraFee,
+                },
+              )
+              .toList(),
+          'time_surcharges': pricing.timeSurcharges
+              .map(
+                (s) => {
+                  'label': s.label,
+                  'start': s.startHour,
+                  'end': s.endHour,
+                  'amount': s.amount,
+                  'is_percent': s.isPercent,
+                },
+              )
+              .toList(),
         });
       }
 
-      await SupabaseService.instance.saveProviderServices(userId, servicesToSave);
+      await SupabaseService.instance.saveProviderServices(
+        userId,
+        servicesToSave,
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -529,7 +603,10 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to save services'), backgroundColor: AppTheme.error),
+          const SnackBar(
+            content: Text('Failed to save services'),
+            backgroundColor: AppTheme.error,
+          ),
         );
       }
     } finally {
@@ -644,7 +721,12 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
                   builder: (ctx) => AlertDialog(
                     title: const Text('Debug Info'),
                     content: SingleChildScrollView(child: Text(e.toString())),
-                    actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Close'),
+                      ),
+                    ],
                   ),
                 );
               },
@@ -675,48 +757,77 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
           onPressed: _signOut,
           tooltip: l.t('sign_out'),
         ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              l.t('job_requests'),
-              style: GoogleFonts.manrope(
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.onSurface,
+        title: Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                l.t('job_requests'),
+                style: GoogleFonts.manrope(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.onSurface,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
-            ),
-            Text(
-              l.t('provider_dashboard'),
-              style: GoogleFonts.manrope(fontSize: 11, color: AppTheme.muted),
-            ),
-          ],
+              Text(
+                l.t('provider_dashboard'),
+                style: GoogleFonts.manrope(fontSize: 10, color: AppTheme.muted),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.notifications_outlined),
+            icon: const Icon(Icons.notifications_outlined, size: 20),
             color: AppTheme.onSurface,
             onPressed: () {},
+            visualDensity: VisualDensity.compact,
           ),
           IconButton(
-            icon: const Icon(Icons.person_outline_rounded),
+            icon: const Icon(Icons.person_outline_rounded, size: 20),
             color: AppTheme.primary,
             tooltip: l.t('my_profile'),
             onPressed: () =>
                 Navigator.pushNamed(context, AppRoutes.providerProfileScreen),
+            visualDensity: VisualDensity.compact,
           ),
           Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: TextButton.icon(
-              onPressed: () => Navigator.pushNamedAndRemoveUntil(
+            padding: const EdgeInsets.only(right: 8),
+            child: InkWell(
+              onTap: () => Navigator.pushNamedAndRemoveUntil(
                 context,
                 AppRoutes.serviceRequestScreen,
                 (r) => false,
               ),
-              icon: const Icon(Icons.directions_car_outlined, size: 15),
-              label: Text(
-                'Driver View',
-                style: GoogleFonts.manrope(fontSize: 12, fontWeight: FontWeight.w600),
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withAlpha(20),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.directions_car_outlined,
+                      size: 14,
+                      color: AppTheme.primary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Driver',
+                      style: GoogleFonts.manrope(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.primary,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -727,37 +838,54 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
           children: [
             ProviderStatsHeaderWidget(jobs: _jobs),
             _buildTabSelector(l),
-            Expanded(
-              child: _buildTabContent(l),
-            ),
+            Expanded(child: _buildTabContent(l)),
           ],
         ),
       ),
-      floatingActionButton: _currentTabIndex == 0 
-        ? FloatingActionButton.extended(
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(l.t('select_job_detail')),
-                  behavior: SnackBarBehavior.floating,
-                  backgroundColor: AppTheme.onSurface,
-                  margin: const EdgeInsets.all(16),
+      floatingActionButton: _currentTabIndex == 0
+          ? FloatingActionButton.extended(
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(l.t('select_job_detail')),
+                    behavior: SnackBarBehavior.floating,
+                    backgroundColor: AppTheme.onSurface,
+                    margin: const EdgeInsets.all(16),
+                  ),
+                );
+              },
+              backgroundColor: AppTheme.secondary,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.send_rounded, size: 18),
+              label: Text(
+                l.t('send_quote'),
+                style: GoogleFonts.manrope(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
                 ),
-              );
-            },
-            backgroundColor: AppTheme.secondary,
-            foregroundColor: Colors.white,
-            icon: const Icon(Icons.send_rounded, size: 18),
-            label: Text(l.t('send_quote'), style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w700)),
-          )
-        : _currentTabIndex == 1 
+              ),
+            )
+          : _currentTabIndex == 1
           ? FloatingActionButton.extended(
               onPressed: _isSavingServices ? null : _saveServices,
               backgroundColor: AppTheme.primary,
-              icon: _isSavingServices 
-                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              icon: _isSavingServices
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
                   : const Icon(Icons.save_rounded, size: 18),
-              label: Text(l.t('save_all'), style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w700)),
+              label: Text(
+                l.t('save_all'),
+                style: GoogleFonts.manrope(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             )
           : null,
     );
@@ -766,8 +894,14 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   Widget _buildTabSelector(LocalizationService l) {
     final tabs = [
       {'label': l.t('job_requests'), 'icon': Icons.work_outline_rounded},
-      {'label': l.t('my_services_pricing'), 'icon': Icons.build_circle_outlined},
-      {'label': l.t('subscription_plans'), 'icon': Icons.card_membership_rounded},
+      {
+        'label': l.t('my_services_pricing'),
+        'icon': Icons.build_circle_outlined,
+      },
+      {
+        'label': l.t('subscription_plans'),
+        'icon': Icons.card_membership_rounded,
+      },
     ];
 
     return Container(
@@ -782,11 +916,18 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 margin: const EdgeInsets.symmetric(horizontal: 4),
-                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 10,
+                  horizontal: 4,
+                ),
                 decoration: BoxDecoration(
-                  color: isSelected ? AppTheme.primary : AppTheme.surfaceVariant.withAlpha(80),
+                  color: isSelected
+                      ? AppTheme.primary
+                      : AppTheme.surfaceVariant.withAlpha(80),
                   borderRadius: BorderRadius.circular(12),
-                  border: isSelected ? null : Border.all(color: AppTheme.outlineVariant),
+                  border: isSelected
+                      ? null
+                      : Border.all(color: AppTheme.outlineVariant),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -794,7 +935,9 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
                     Icon(
                       tabs[index]['icon'] as IconData,
                       size: 18,
-                      color: isSelected ? Colors.white : AppTheme.onSurfaceVariant,
+                      color: isSelected
+                          ? Colors.white
+                          : AppTheme.onSurfaceVariant,
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -802,7 +945,9 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
                       style: GoogleFonts.manrope(
                         fontSize: 9,
                         fontWeight: FontWeight.w700,
-                        color: isSelected ? Colors.white : AppTheme.onSurfaceVariant,
+                        color: isSelected
+                            ? Colors.white
+                            : AppTheme.onSurfaceVariant,
                       ),
                       textAlign: TextAlign.center,
                       maxLines: 1,
@@ -835,16 +980,6 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
 
   Widget _buildJobRequestsTab(LocalizationService l) {
     if (_isLoading) return const JobListSkeletonWidget();
-    
-    if (_filteredJobs.isEmpty) {
-      return EmptyStateWidget(
-        icon: Icons.work_off_outlined,
-        title: l.t('no_job_requests'),
-        description: l.t('new_jobs_info'),
-        ctaLabel: l.t('update_services'),
-        onCta: () => setState(() => _currentTabIndex = 1),
-      );
-    }
 
     return Column(
       children: [
@@ -853,23 +988,33 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
           onStatusChanged: _onStatusFilterChanged,
         ),
         Expanded(
-          child: RefreshIndicator(
-            onRefresh: _loadJobs,
-            color: AppTheme.primary,
-            child: _buildJobList(),
-          ),
+          child: _filteredJobs.isEmpty
+              ? EmptyStateWidget(
+                  icon: Icons.work_off_outlined,
+                  title: l.t('no_job_requests'),
+                  description: l.t('new_jobs_info'),
+                  ctaLabel: l.t('update_services'),
+                  onCta: () => setState(() => _currentTabIndex = 1),
+                )
+              : RefreshIndicator(
+                  onRefresh: _loadJobs,
+                  color: AppTheme.primary,
+                  child: _buildJobList(),
+                ),
         ),
       ],
     );
   }
 
   Widget _buildServicesTab(LocalizationService l) {
-    if (_isLoadingCategories) return const Center(child: CircularProgressIndicator());
+    if (_isLoadingCategories) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
     final plan = _activeSubscription?['plan'] as Map<String, dynamic>?;
     final int maxCats = plan?['max_categories'] as int? ?? 1;
-    final String usageText = maxCats == 0 
-        ? 'Unlimited categories' 
+    final String usageText = maxCats == 0
+        ? 'Unlimited categories'
         : '${_enabledServices.length} / $maxCats categories used';
 
     return SingleChildScrollView(
@@ -886,16 +1031,26 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
             ),
             child: Row(
               children: [
-                const Icon(Icons.info_outline, color: AppTheme.primary, size: 18),
+                const Icon(
+                  Icons.info_outline,
+                  color: AppTheme.primary,
+                  size: 18,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     'Select services you provide and configure your pricing rules.',
-                    style: GoogleFonts.manrope(fontSize: 12, color: AppTheme.onSurfaceVariant),
+                    style: GoogleFonts.manrope(
+                      fontSize: 12,
+                      color: AppTheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: (_enabledServices.length >= maxCats && maxCats != 0)
                         ? AppTheme.errorContainer
@@ -907,7 +1062,10 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
                     style: GoogleFonts.manrope(
                       fontSize: 10,
                       fontWeight: FontWeight.w800,
-                      color: (_enabledServices.length >= maxCats && maxCats != 0) ? AppTheme.error : AppTheme.primary,
+                      color:
+                          (_enabledServices.length >= maxCats && maxCats != 0)
+                          ? AppTheme.error
+                          : AppTheme.primary,
                     ),
                   ),
                 ),
@@ -919,7 +1077,10 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 1.4,
+              crossAxisCount: 2,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              childAspectRatio: 1.4,
             ),
             itemCount: _allServices.length,
             itemBuilder: (context, index) {
@@ -936,11 +1097,19 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
           if (_enabledServices.isNotEmpty) ...[
             Align(
               alignment: Alignment.centerLeft,
-              child: Text(l.t('pricing_configuration'), style: GoogleFonts.manrope(fontSize: 15, fontWeight: FontWeight.w700)),
+              child: Text(
+                l.t('pricing_configuration'),
+                style: GoogleFonts.manrope(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
             const SizedBox(height: 12),
             ...(_enabledServices.map((id) {
-              final service = _allServices.firstWhere((s) => s['id'].toString() == id);
+              final service = _allServices.firstWhere(
+                (s) => s['id'].toString() == id,
+              );
               return _ServicePricingCard(
                 service: service,
                 pricing: _pricingMap[id] ?? const _ServicePricing(basePrice: 0),
@@ -979,7 +1148,11 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
               ),
               const Spacer(),
               if (_isSavingRange)
-                const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
             ],
           ),
           const SizedBox(height: 14),
@@ -1014,7 +1187,11 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
                   color: AppTheme.primaryContainer,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.my_location, size: 22, color: AppTheme.primary),
+                child: const Icon(
+                  Icons.my_location,
+                  size: 22,
+                  color: AppTheme.primary,
+                ),
               ),
             ],
           ),
@@ -1040,23 +1217,36 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   }
 
   Widget _buildPlansTab(LocalizationService l) {
-    if (_isLoadingPlans) return const Center(child: CircularProgressIndicator());
+    if (_isLoadingPlans) {
+      return const Center(child: CircularProgressIndicator());
+    }
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
           Container(
             padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(color: AppTheme.surfaceVariant, borderRadius: BorderRadius.circular(12)),
+            decoration: BoxDecoration(
+              color: AppTheme.surfaceVariant,
+              borderRadius: BorderRadius.circular(12),
+            ),
             child: Row(
               children: [
-                _buildBillingToggle('monthly', l.t('per_month').replaceAll('/', '')),
-                _buildBillingToggle('yearly', '${l.t('per_year').replaceAll('/', '')} (Save 20%)'),
+                _buildBillingToggle(
+                  'monthly',
+                  l.t('per_month').replaceAll('/', ''),
+                ),
+                _buildBillingToggle(
+                  'yearly',
+                  '${l.t('per_year').replaceAll('/', '')} (Save 20%)',
+                ),
               ],
             ),
           ),
           const SizedBox(height: 20),
-          ..._availablePlans.asMap().entries.map((e) => _buildPlanCard(e.value, e.key, l)),
+          ..._availablePlans.asMap().entries.map(
+            (e) => _buildPlanCard(e.value, e.key, l),
+          ),
           const SizedBox(height: 40),
         ],
       ),
@@ -1075,23 +1265,38 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
             color: isSelected ? AppTheme.primary : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Text(label, textAlign: TextAlign.center, style: GoogleFonts.manrope(
-            fontSize: 13, fontWeight: FontWeight.w600, color: isSelected ? Colors.white : AppTheme.onSurfaceVariant,
-          )),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.manrope(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: isSelected ? Colors.white : AppTheme.onSurfaceVariant,
+            ),
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildPlanCard(Map<String, dynamic> plan, int index, LocalizationService l) {
+  Widget _buildPlanCard(
+    Map<String, dynamic> plan,
+    int index,
+    LocalizationService l,
+  ) {
     final bool isFeatured = plan['is_featured'] as bool? ?? false;
     final String badgeText = plan['badge_text'] as String? ?? '';
-    final bool isCurrentPlan = _activeSubscription != null && _activeSubscription!['plan_id'] == plan['id'];
-    final isPopular = isFeatured || index == 1 || badgeText.isNotEmpty || isCurrentPlan;
+    final bool isCurrentPlan =
+        _activeSubscription != null &&
+        _activeSubscription!['plan_id'] == plan['id'];
+    final isPopular =
+        isFeatured || index == 1 || badgeText.isNotEmpty || isCurrentPlan;
 
     final priceMonthly = (plan['price_monthly'] as num?)?.toDouble() ?? 0;
     final priceYearly = (plan['price_yearly'] as num?)?.toDouble();
-    final displayPrice = _billingCycle == 'yearly' && priceYearly != null ? priceYearly / 12 : priceMonthly;
+    final displayPrice = _billingCycle == 'yearly' && priceYearly != null
+        ? priceYearly / 12
+        : priceMonthly;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -1099,7 +1304,9 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         color: AppTheme.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isCurrentPlan ? _dynamicCurrentPlanColor : (isPopular ? AppTheme.primary : AppTheme.outlineVariant),
+          color: isCurrentPlan
+              ? _dynamicCurrentPlanColor
+              : (isPopular ? AppTheme.primary : AppTheme.outlineVariant),
           width: 2,
         ),
       ),
@@ -1110,13 +1317,23 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 8),
               decoration: BoxDecoration(
-                color: isCurrentPlan ? _dynamicCurrentPlanColor : AppTheme.primary,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
+                color: isCurrentPlan
+                    ? _dynamicCurrentPlanColor
+                    : AppTheme.primary,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(14),
+                ),
               ),
               child: Text(
-                isCurrentPlan ? l.t('current_plan') : (badgeText.isNotEmpty ? badgeText : l.t('most_popular')),
+                isCurrentPlan
+                    ? l.t('current_plan')
+                    : (badgeText.isNotEmpty ? badgeText : l.t('most_popular')),
                 textAlign: TextAlign.center,
-                style: GoogleFonts.manrope(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white),
+                style: GoogleFonts.manrope(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
               ),
             ),
           Padding(
@@ -1127,24 +1344,59 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(l.translateContent(plan['name_translations'] as Map<String, dynamic>? ?? {}, fallbackText: plan['name']),
-                         style: GoogleFonts.manrope(fontSize: 18, fontWeight: FontWeight.w700)),
-                    Text('\$${displayPrice.toStringAsFixed(2)}', style: GoogleFonts.manrope(fontSize: 24, fontWeight: FontWeight.w800, color: AppTheme.primary)),
+                    Text(
+                      l.translateContent(
+                        plan['name_translations'] as Map<String, dynamic>? ??
+                            {},
+                        fallbackText: plan['name'],
+                      ),
+                      style: GoogleFonts.manrope(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      '\$${displayPrice.toStringAsFixed(2)}',
+                      style: GoogleFonts.manrope(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.primary,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: (isCurrentPlan || _isSubscribing) ? null : () => _subscribeToPlan(plan),
+                    onPressed: (isCurrentPlan || _isSubscribing)
+                        ? null
+                        : () => _subscribeToPlan(plan),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: isCurrentPlan ? _dynamicCurrentPlanColor.withAlpha(20) : AppTheme.primary,
-                      foregroundColor: isCurrentPlan ? _dynamicCurrentPlanColor : Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      backgroundColor: isCurrentPlan
+                          ? _dynamicCurrentPlanColor.withAlpha(20)
+                          : AppTheme.primary,
+                      foregroundColor: isCurrentPlan
+                          ? _dynamicCurrentPlanColor
+                          : Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     child: _isSubscribing && !isCurrentPlan
-                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : Text(isCurrentPlan ? l.t('current_plan') : l.t('subscribe')),
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Text(
+                            isCurrentPlan
+                                ? l.t('current_plan')
+                                : l.t('subscribe'),
+                          ),
                   ),
                 ),
               ],
@@ -1189,7 +1441,7 @@ class _StatusFilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final filters = ['all', 'new', 'quoted', 'accepted', 'completed'];
+    final filters = ['active', 'new', 'quoted', 'completed'];
     return Container(
       height: 50,
       margin: const EdgeInsets.symmetric(vertical: 8),
@@ -1201,11 +1453,16 @@ class _StatusFilterBar extends StatelessWidget {
         itemBuilder: (context, i) {
           final isSelected = selectedStatus == filters[i];
           return ChoiceChip(
-            label: Text(filters[i].toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+            label: Text(
+              filters[i].toUpperCase(),
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+            ),
             selected: isSelected,
             onSelected: (_) => onStatusChanged(filters[i]),
             selectedColor: AppTheme.primaryContainer,
-            labelStyle: TextStyle(color: isSelected ? AppTheme.primary : AppTheme.muted),
+            labelStyle: TextStyle(
+              color: isSelected ? AppTheme.primary : AppTheme.muted,
+            ),
           );
         },
       ),
@@ -1246,9 +1503,17 @@ class _AnimatedJobCardState extends State<_AnimatedJobCard>
       vsync: this,
       duration: const Duration(milliseconds: 350),
     );
-    _slideAnim = Tween<double>(begin: 24, end: 0).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
-    _fadeAnim = Tween<double>(begin: 0, end: 1).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
-    Future.delayed(widget.delay, () { if (mounted) _controller.forward(); });
+    _slideAnim = Tween<double>(
+      begin: 24,
+      end: 0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+    _fadeAnim = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+    Future.delayed(widget.delay, () {
+      if (mounted) _controller.forward();
+    });
   }
 
   @override
@@ -1269,12 +1534,20 @@ class _AnimatedJobCardState extends State<_AnimatedJobCard>
       },
       child: JobRequestCardWidget(
         job: JobRequest(
-          id: widget.job.id, serviceType: widget.job.serviceType, serviceIcon: widget.job.serviceIcon,
-          urgency: widget.job.urgency, driverName: widget.job.driverName, driverImageUrl: widget.job.driverImageUrl,
-          driverImageSemanticLabel: widget.job.driverImageSemanticLabel, address: widget.job.address,
-          distanceMiles: widget.job.distanceMiles, description: widget.job.description,
-          estimatedValue: widget.job.estimatedValue, status: widget.job.status,
-          quoteSent: widget.job.quoteSent, postedMinutesAgo: widget.job.postedMinutesAgo,
+          id: widget.job.id,
+          serviceType: widget.job.serviceType,
+          serviceIcon: widget.job.serviceIcon,
+          urgency: widget.job.urgency,
+          driverName: widget.job.driverName,
+          driverImageUrl: widget.job.driverImageUrl,
+          driverImageSemanticLabel: widget.job.driverImageSemanticLabel,
+          address: widget.job.address,
+          distanceMiles: widget.job.distanceMiles,
+          description: widget.job.description,
+          estimatedValue: widget.job.estimatedValue,
+          status: widget.job.status,
+          quoteSent: widget.job.quoteSent,
+          postedMinutesAgo: widget.job.postedMinutesAgo,
         ),
         onSendQuote: widget.onSendQuote,
         onStatusChanged: widget.onStatusChanged,
@@ -1288,12 +1561,19 @@ class _ServiceToggleCard extends StatelessWidget {
   final bool isEnabled;
   final VoidCallback onToggle;
 
-  const _ServiceToggleCard({required this.service, required this.isEnabled, required this.onToggle});
+  const _ServiceToggleCard({
+    required this.service,
+    required this.isEnabled,
+    required this.onToggle,
+  });
 
   @override
   Widget build(BuildContext context) {
     final l = LocalizationService.instance;
-    final String name = (service['name_translations'] as Map?)?[l.currentLanguageCode] ?? service['name'] ?? '';
+    final String name =
+        (service['name_translations'] as Map?)?[l.currentLanguageCode] ??
+        service['name'] ??
+        '';
     final String iconEmoji = service['icon_emoji'] ?? '🔧';
 
     return GestureDetector(
@@ -1304,7 +1584,10 @@ class _ServiceToggleCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: isEnabled ? AppTheme.primary.withAlpha(20) : AppTheme.surface,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: isEnabled ? AppTheme.primary : AppTheme.outlineVariant, width: 2),
+          border: Border.all(
+            color: isEnabled ? AppTheme.primary : AppTheme.outlineVariant,
+            width: 2,
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1315,13 +1598,30 @@ class _ServiceToggleCard extends StatelessWidget {
               children: [
                 Container(
                   padding: const EdgeInsets.all(7),
-                  decoration: BoxDecoration(color: isEnabled ? AppTheme.primary.withAlpha(30) : AppTheme.surfaceVariant, borderRadius: BorderRadius.circular(8)),
+                  decoration: BoxDecoration(
+                    color: isEnabled
+                        ? AppTheme.primary.withAlpha(30)
+                        : AppTheme.surfaceVariant,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                   child: Text(iconEmoji, style: const TextStyle(fontSize: 20)),
                 ),
-                if (isEnabled) const Icon(Icons.check_circle, size: 20, color: AppTheme.primary),
+                if (isEnabled)
+                  const Icon(
+                    Icons.check_circle,
+                    size: 20,
+                    color: AppTheme.primary,
+                  ),
               ],
             ),
-            Text(name, style: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w700, color: isEnabled ? AppTheme.primary : AppTheme.onSurface)),
+            Text(
+              name,
+              style: GoogleFonts.manrope(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: isEnabled ? AppTheme.primary : AppTheme.onSurface,
+              ),
+            ),
           ],
         ),
       ),
@@ -1334,31 +1634,65 @@ class _ServicePricingCard extends StatelessWidget {
   final _ServicePricing pricing;
   final VoidCallback onEdit;
 
-  const _ServicePricingCard({required this.service, required this.pricing, required this.onEdit});
+  const _ServicePricingCard({
+    required this.service,
+    required this.pricing,
+    required this.onEdit,
+  });
 
   @override
   Widget build(BuildContext context) {
     final l = LocalizationService.instance;
     final hasPrice = pricing.basePrice > 0;
-    final String name = (service['name_translations'] as Map?)?[l.currentLanguageCode] ?? service['name'] ?? '';
+    final String name =
+        (service['name_translations'] as Map?)?[l.currentLanguageCode] ??
+        service['name'] ??
+        '';
     final String iconEmoji = service['icon_emoji'] ?? '🔧';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(color: AppTheme.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.outlineVariant)),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.outlineVariant),
+      ),
       child: Row(
         children: [
           Text(iconEmoji, style: const TextStyle(fontSize: 24)),
           const SizedBox(width: 12),
           Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(name, style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w700)),
-              Text(hasPrice ? 'Base: \$${pricing.basePrice.toStringAsFixed(0)}' : 'Price not set', 
-                   style: GoogleFonts.manrope(fontSize: 12, color: hasPrice ? AppTheme.success : AppTheme.warning)),
-            ]),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: GoogleFonts.manrope(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  hasPrice
+                      ? 'Base: \$${pricing.basePrice.toStringAsFixed(0)}'
+                      : 'Price not set',
+                  style: GoogleFonts.manrope(
+                    fontSize: 12,
+                    color: hasPrice ? AppTheme.success : AppTheme.warning,
+                  ),
+                ),
+              ],
+            ),
           ),
-          IconButton(onPressed: onEdit, icon: const Icon(Icons.edit_outlined, size: 20, color: AppTheme.primary)),
+          IconButton(
+            onPressed: onEdit,
+            icon: const Icon(
+              Icons.edit_outlined,
+              size: 20,
+              color: AppTheme.primary,
+            ),
+          ),
         ],
       ),
     );
@@ -1390,6 +1724,17 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
   late TextEditingController _basePriceCtrl;
   late List<_DistanceRule> _distanceRules;
   late List<_TimeSurcharge> _timeSurcharges;
+  late List<String> _supportedVehicles;
+
+  // Master list (should ideally come from DB or shared constant)
+  static const List<Map<String, dynamic>> _vehicleSizeOptions = [
+    {'id': 'motorcycle', 'label': 'Motorcycle', 'emoji': '🏍️'},
+    {'id': 'sedan', 'label': 'Sedan / Car', 'emoji': '🚗'},
+    {'id': 'suv', 'label': 'SUV / Crossover', 'emoji': '🚙'},
+    {'id': 'pickup', 'label': 'Pickup Truck', 'emoji': '🛻'},
+    {'id': 'van', 'label': 'Van / Minivan', 'emoji': '🚐'},
+    {'id': 'large_truck', 'label': 'Large Truck', 'emoji': '🚛'},
+  ];
 
   @override
   void initState() {
@@ -1401,6 +1746,7 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
     );
     _distanceRules = List.from(widget.pricing.distanceRules);
     _timeSurcharges = List.from(widget.pricing.timeSurcharges);
+    _supportedVehicles = List.from(widget.pricing.supportedVehicleSizes);
   }
 
   @override
@@ -1451,17 +1797,22 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
             const SizedBox(height: 20),
             _buildBasePriceField(),
             const SizedBox(height: 20),
+            _buildVehicleSelectionSection(l),
+            const SizedBox(height: 20),
             if (widget.canSetDistance) _buildDistanceSection(l),
             if (widget.canUseAfterHours) _buildAfterHoursSection(l),
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () => widget.onSave(_ServicePricing(
-                  basePrice: double.tryParse(_basePriceCtrl.text) ?? 0,
-                  distanceRules: _distanceRules,
-                  timeSurcharges: _timeSurcharges,
-                )),
+                onPressed: () => widget.onSave(
+                  _ServicePricing(
+                    basePrice: double.tryParse(_basePriceCtrl.text) ?? 0,
+                    distanceRules: _distanceRules,
+                    timeSurcharges: _timeSurcharges,
+                    supportedVehicleSizes: _supportedVehicles,
+                  ),
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppTheme.primary,
                   foregroundColor: Colors.white,
@@ -1516,6 +1867,94 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
     );
   }
 
+  Widget _buildVehicleSelectionSection(LocalizationService l) {
+    // Only show sizes that are allowed for this category by the admin
+    final List<dynamic> allowedSizes =
+        widget.service['vehicle_sizes'] as List? ?? [];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Supported Vehicles',
+          style: GoogleFonts.manrope(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.onSurface,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Select the vehicle types you can assist with for this service.',
+          style: GoogleFonts.manrope(fontSize: 11, color: AppTheme.muted),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: _vehicleSizeOptions.map((opt) {
+            final isAllowedByAdmin = allowedSizes.contains(opt['id']);
+            final isSelected = _supportedVehicles.contains(opt['id']);
+
+            // If not allowed by admin, don't even show it (or show disabled)
+            if (!isAllowedByAdmin) return const SizedBox.shrink();
+
+            return InkWell(
+              onTap: () {
+                setState(() {
+                  if (isSelected) {
+                    _supportedVehicles.remove(opt['id']);
+                  } else {
+                    _supportedVehicles.add(opt['id'] as String);
+                  }
+                });
+              },
+              borderRadius: BorderRadius.circular(10),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? AppTheme.primary.withAlpha(25)
+                      : AppTheme.surfaceVariant.withAlpha(50),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: isSelected ? AppTheme.primary : AppTheme.outline,
+                    width: isSelected ? 1.5 : 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(opt['emoji'] as String,
+                        style: const TextStyle(fontSize: 16)),
+                    const SizedBox(width: 6),
+                    Text(
+                      opt['label'] as String,
+                      style: GoogleFonts.manrope(
+                        fontSize: 12,
+                        fontWeight:
+                            isSelected ? FontWeight.w700 : FontWeight.w500,
+                        color: isSelected
+                            ? AppTheme.primary
+                            : AppTheme.onSurfaceVariant,
+                      ),
+                    ),
+                    if (isSelected) ...[
+                      const SizedBox(width: 4),
+                      const Icon(Icons.check, size: 14, color: AppTheme.primary),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
   Widget _buildDistanceSection(LocalizationService l) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1523,7 +1962,11 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
         const Divider(height: 32),
         Row(
           children: [
-            const Icon(Icons.add_road_outlined, size: 18, color: AppTheme.primary),
+            const Icon(
+              Icons.add_road_outlined,
+              size: 18,
+              color: AppTheme.primary,
+            ),
             const SizedBox(width: 8),
             Text(
               'Distance Surcharges',
@@ -1564,7 +2007,11 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
           ),
           IconButton(
             onPressed: () => setState(() => _distanceRules.remove(rule)),
-            icon: const Icon(Icons.remove_circle_outline, size: 18, color: AppTheme.error),
+            icon: const Icon(
+              Icons.remove_circle_outline,
+              size: 18,
+              color: AppTheme.error,
+            ),
           ),
         ],
       ),
@@ -1578,7 +2025,11 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
         const Divider(height: 32),
         Row(
           children: [
-            const Icon(Icons.nights_stay_outlined, size: 18, color: AppTheme.primary),
+            const Icon(
+              Icons.nights_stay_outlined,
+              size: 18,
+              color: AppTheme.primary,
+            ),
             const SizedBox(width: 8),
             Text(
               'After-Hours Rates',
@@ -1615,7 +2066,13 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(s.label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                Text(
+                  s.label,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
                 Text(
                   '${s.startHour}:00 - ${s.endHour}:00: ${s.amount}${s.isPercent ? '%' : '\$'} extra',
                   style: const TextStyle(fontSize: 12, color: AppTheme.muted),
@@ -1625,7 +2082,11 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
           ),
           IconButton(
             onPressed: () => setState(() => _timeSurcharges.remove(s)),
-            icon: const Icon(Icons.remove_circle_outline, size: 18, color: AppTheme.error),
+            icon: const Icon(
+              Icons.remove_circle_outline,
+              size: 18,
+              color: AppTheme.error,
+            ),
           ),
         ],
       ),
@@ -1644,19 +2105,40 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: fromCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'From Miles')),
-            TextField(controller: toCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'To Miles (Empty for +)')),
-            TextField(controller: feeCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Extra Fee (\$)')),
+            TextField(
+              controller: fromCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'From Miles'),
+            ),
+            TextField(
+              controller: toCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'To Miles (Empty for +)',
+              ),
+            ),
+            TextField(
+              controller: feeCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Extra Fee (\$)'),
+            ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () {
               final from = double.tryParse(fromCtrl.text) ?? 0;
               final to = double.tryParse(toCtrl.text);
               final fee = double.tryParse(feeCtrl.text) ?? 0;
-              setState(() => _distanceRules.add(_DistanceRule(fromMiles: from, toMiles: to, extraFee: fee)));
+              setState(
+                () => _distanceRules.add(
+                  _DistanceRule(fromMiles: from, toMiles: to, extraFee: fee),
+                ),
+              );
               Navigator.pop(ctx);
             },
             child: const Text('Add'),
@@ -1681,30 +2163,59 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: labelCtrl, decoration: const InputDecoration(labelText: 'Label (e.g. Night Shift)')),
-              TextField(controller: startCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Start Hour (0-23)')),
-              TextField(controller: endCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'End Hour (0-23)')),
-              TextField(controller: amountCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Extra Amount')),
+              TextField(
+                controller: labelCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Label (e.g. Night Shift)',
+                ),
+              ),
+              TextField(
+                controller: startCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Start Hour (0-23)',
+                ),
+              ),
+              TextField(
+                controller: endCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'End Hour (0-23)'),
+              ),
+              TextField(
+                controller: amountCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Extra Amount'),
+              ),
               Row(
                 children: [
                   const Text('Percentage?'),
                   const Spacer(),
-                  Switch(value: isPercent, onChanged: (v) => setDialogState(() => isPercent = v)),
+                  Switch(
+                    value: isPercent,
+                    onChanged: (v) => setDialogState(() => isPercent = v),
+                  ),
                 ],
               ),
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
             ElevatedButton(
               onPressed: () {
-                setState(() => _timeSurcharges.add(_TimeSurcharge(
-                  label: labelCtrl.text,
-                  startHour: int.tryParse(startCtrl.text) ?? 0,
-                  endHour: int.tryParse(endCtrl.text) ?? 0,
-                  amount: double.tryParse(amountCtrl.text) ?? 0,
-                  isPercent: isPercent,
-                )));
+                setState(
+                  () => _timeSurcharges.add(
+                    _TimeSurcharge(
+                      label: labelCtrl.text,
+                      startHour: int.tryParse(startCtrl.text) ?? 0,
+                      endHour: int.tryParse(endCtrl.text) ?? 0,
+                      amount: double.tryParse(amountCtrl.text) ?? 0,
+                      isPercent: isPercent,
+                    ),
+                  ),
+                );
                 Navigator.pop(ctx);
               },
               child: const Text('Add'),
@@ -1719,26 +2230,62 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
 // ─── MODELS ──────────────────────────────────────────────────────────────────
 
 class _JobRequest {
-  final String id, serviceType, serviceIcon, driverName, driverPhone, address, description, urgency, status, driverImageUrl, driverImageSemanticLabel;
+  final String id,
+      serviceType,
+      serviceIcon,
+      driverName,
+      driverPhone,
+      address,
+      description,
+      urgency,
+      status,
+      driverImageUrl,
+      driverImageSemanticLabel;
   final double distanceMiles, estimatedValue;
   final bool quoteSent;
   final int postedMinutesAgo;
 
-  _JobRequest({required this.id, required this.serviceType, required this.serviceIcon, required this.driverName, required this.driverPhone, required this.address, required this.distanceMiles, required this.description, required this.postedMinutesAgo, required this.urgency, required this.status, required this.estimatedValue, required this.quoteSent, required this.driverImageUrl, required this.driverImageSemanticLabel});
+  _JobRequest({
+    required this.id,
+    required this.serviceType,
+    required this.serviceIcon,
+    required this.driverName,
+    required this.driverPhone,
+    required this.address,
+    required this.distanceMiles,
+    required this.description,
+    required this.postedMinutesAgo,
+    required this.urgency,
+    required this.status,
+    required this.estimatedValue,
+    required this.quoteSent,
+    required this.driverImageUrl,
+    required this.driverImageSemanticLabel,
+  });
 }
 
 class _ServicePricing {
   final double basePrice;
   final List<_DistanceRule> distanceRules;
   final List<_TimeSurcharge> timeSurcharges;
-  const _ServicePricing({required this.basePrice, this.distanceRules = const [], this.timeSurcharges = const []});
+  final List<String> supportedVehicleSizes;
+  const _ServicePricing({
+    required this.basePrice,
+    this.distanceRules = const [],
+    this.timeSurcharges = const [],
+    this.supportedVehicleSizes = const [],
+  });
 }
 
 class _DistanceRule {
   final double fromMiles;
   final double? toMiles;
   final double extraFee;
-  const _DistanceRule({required this.fromMiles, this.toMiles, required this.extraFee});
+  const _DistanceRule({
+    required this.fromMiles,
+    this.toMiles,
+    required this.extraFee,
+  });
 }
 
 class _TimeSurcharge {
@@ -1746,5 +2293,11 @@ class _TimeSurcharge {
   final int startHour, endHour;
   final double amount;
   final bool isPercent;
-  const _TimeSurcharge({required this.label, required this.startHour, required this.endHour, required this.amount, required this.isPercent});
+  const _TimeSurcharge({
+    required this.label,
+    required this.startHour,
+    required this.endHour,
+    required this.amount,
+    required this.isPercent,
+  });
 }

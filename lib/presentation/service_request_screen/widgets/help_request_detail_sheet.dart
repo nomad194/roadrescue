@@ -29,7 +29,6 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
   bool _showPostPaymentForOnline = true;
   bool _whatsappEnabled = true;
 
-  // Provider's accepted payment methods (loaded from quote)
   bool _providerAcceptsCash = true;
   bool _providerAcceptsOnline = true;
 
@@ -71,7 +70,6 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
 
   Future<void> _loadProviderPaymentMethods() async {
     try {
-      // Load accepted_payment_methods from the job_request record
       final response = await Supabase.instance.client
           .from('job_requests')
           .select('accepted_payment_methods')
@@ -88,11 +86,13 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
     } catch (_) {}
   }
 
-  // COD acceptance: confirm immediately, notify provider
-  void _acceptWithCOD(BuildContext context) async {
+  void _acceptWithCOD() async {
     if (_acceptingQuote) return;
     setState(() => _acceptingQuote = true);
     final l = LocalizationService.instance;
+    final messenger = ScaffoldMessenger.of(context);
+    final nav = Navigator.of(context);
+
     try {
       await Supabase.instance.client
           .from('job_requests')
@@ -103,19 +103,15 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
           })
           .eq('id', widget.request.id);
 
-      // Notify provider: COD confirmed
       await NotificationService.instance.showLocalNotification(
         title: '✅ Quote Accepted (COD)',
         body: 'Your quote has been accepted. Order confirmed (COD).',
         payload: 'booking_confirmed_cod',
       );
 
-      if (!context.mounted) return;
-      final messenger = ScaffoldMessenger.of(context);
-      final nav = Navigator.of(context);
-      
-      nav.pop();
+      if (!mounted) return;
       widget.onQuoteAccepted?.call();
+      nav.pop();
 
       if (_showPostPaymentForCash) {
         nav.pushNamed(
@@ -153,8 +149,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
     } catch (e) {
       if (mounted) {
         setState(() => _acceptingQuote = false);
-        final sm = ScaffoldMessenger.of(context);
-        sm.showSnackBar(
+        messenger.showSnackBar(
           SnackBar(
             content: Text(
               l.t('generic_error'),
@@ -172,11 +167,9 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
     }
   }
 
-  // Online payment: redirect to payment gateway
-  void _acceptWithOnlinePayment(BuildContext context) {
-    if (!mounted) return;
+  void _acceptWithOnlinePayment() {
     final nav = Navigator.of(context);
-    
+    if (!mounted) return;
     nav.pop();
     nav.pushNamed(
       AppRoutes.paymentScreen,
@@ -196,15 +189,14 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
     );
   }
 
-  void _openWhatsApp(BuildContext context) {
+  void _openWhatsApp() {
     final phone =
         widget.request.providerPhone?.replaceAll(RegExp(r'[^\d+]'), '') ?? '';
     final message = Uri.encodeComponent(
       'Hi ${widget.request.providerName ?? 'there'}, I\'m the customer for booking #${widget.request.id.substring(0, 8)} (${widget.request.serviceType}). I\'m at ${widget.request.address}.',
     );
     final url = 'https://wa.me/$phone?text=$message';
-    final sm = ScaffoldMessenger.of(context);
-    sm.showSnackBar(
+    ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           'Opening WhatsApp to chat with ${widget.request.providerName ?? 'your provider'}...',
@@ -245,7 +237,6 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Header row
                   Row(
                     children: [
                       Expanded(
@@ -275,8 +266,6 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                     ],
                   ),
                   const SizedBox(height: 16),
-
-                  // Location row
                   _buildInfoRow(
                     Icons.location_on_rounded,
                     AppTheme.error,
@@ -288,29 +277,21 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                     AppTheme.primary,
                     widget.request.description,
                   ),
-
-                  // Provider card — only shown when confirmed
                   if (_isConfirmed && widget.request.providerName != null) ...[
                     const SizedBox(height: 20),
-                    _buildProviderCard(context, l),
+                    _buildProviderCard(l),
                   ],
-
-                  // Provider card for quoted status (preview)
                   if (widget.request.status == HelpRequestStatus.quoted &&
                       widget.request.providerName != null) ...[
                     const SizedBox(height: 20),
                     _buildQuotedProviderCard(l),
                   ],
-
-                  // Quoted price — shown when quoted or confirmed
                   if ((widget.request.status == HelpRequestStatus.quoted ||
                           _isConfirmed) &&
                       widget.request.quotedPrice != null) ...[
                     const SizedBox(height: 16),
                     _buildPriceRow(l),
                   ],
-
-                  // Next steps
                   const SizedBox(height: 20),
                   Text(
                     'Suggested Next Steps',
@@ -329,26 +310,19 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                       e.value['desc'] as String,
                     ),
                   ),
-
                   const SizedBox(height: 20),
-
-                  // ── QUOTED: Show payment method selection ──────────────────────────
                   if (widget.request.status == HelpRequestStatus.quoted &&
                       widget.request.quotedPrice != null) ...[
-                    _buildPaymentMethodSelector(context, l),
+                    _buildPaymentMethodSelector(l),
                     const SizedBox(height: 12),
                   ],
-
-                  // ── CONFIRMED: WhatsApp button (only if admin enabled) ────────────
                   if (_isConfirmed && _whatsappEnabled) ...[
-                    _buildWhatsAppButton(context, l),
+                    _buildWhatsAppButton(l),
                     const SizedBox(height: 12),
                   ],
-
-                  // Cancel button — shown when pending or quoted
                   if (widget.request.status == HelpRequestStatus.pending ||
                       widget.request.status == HelpRequestStatus.quoted)
-                    _buildCancelButton(context, l),
+                    _buildCancelButton(l),
                 ],
               ),
             ),
@@ -358,11 +332,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
     );
   }
 
-  // ── Payment method selector shown at quote stage ──────────────────────────
-  Widget _buildPaymentMethodSelector(BuildContext context, LocalizationService l) {
-    final hasOnline = _providerAcceptsOnline;
-    final hasCash = _providerAcceptsCash;
-
+  Widget _buildPaymentMethodSelector(LocalizationService l) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -380,15 +350,11 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
           style: GoogleFonts.manrope(fontSize: 12, color: AppTheme.muted),
         ),
         const SizedBox(height: 12),
-
-        // Online payment button (only if provider accepts online)
-        if (hasOnline) ...[
+        if (_providerAcceptsOnline) ...[
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: _acceptingQuote
-                  ? null
-                  : () => _acceptWithOnlinePayment(context),
+              onPressed: _acceptingQuote ? null : _acceptWithOnlinePayment,
               icon: _acceptingQuote
                   ? const SizedBox(
                       width: 18,
@@ -419,13 +385,11 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
           ),
           const SizedBox(height: 10),
         ],
-
-        // COD button (only if provider accepts cash)
-        if (hasCash) ...[
+        if (_providerAcceptsCash) ...[
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: _acceptingQuote ? null : () => _acceptWithCOD(context),
+              onPressed: _acceptingQuote ? null : _acceptWithCOD,
               icon: const Icon(Icons.payments_outlined, size: 20),
               label: Text(
                 'Cash on Delivery · \$${widget.request.quotedPrice!.toStringAsFixed(2)}',
@@ -445,9 +409,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
             ),
           ),
         ],
-
-        // If neither is available (shouldn't happen but fallback)
-        if (!hasOnline && !hasCash) ...[
+        if (!_providerAcceptsOnline && !_providerAcceptsCash) ...[
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
@@ -666,7 +628,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
     );
   }
 
-  Widget _buildProviderCard(BuildContext context, LocalizationService l) {
+  Widget _buildProviderCard(LocalizationService l) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -860,14 +822,11 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
     );
   }
 
-  Widget _buildWhatsAppButton(BuildContext context, LocalizationService l) {
+  Widget _buildWhatsAppButton(LocalizationService l) {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton.icon(
-        onPressed: () {
-          if (!context.mounted) return;
-          _openWhatsApp(context);
-        },
+        onPressed: _openWhatsApp,
         icon: const Icon(Icons.chat_rounded, size: 18),
         label: Text(
           'Chat with Provider on WhatsApp',
@@ -886,12 +845,11 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
     );
   }
 
-  Widget _buildCancelButton(BuildContext context, LocalizationService l) {
+  Widget _buildCancelButton(LocalizationService l) {
     return SizedBox(
       width: double.infinity,
       child: OutlinedButton.icon(
         onPressed: () {
-          if (!context.mounted) return;
           Navigator.pop(context);
           widget.onCancel();
         },
