@@ -7,10 +7,12 @@ import '../../../services/localization_service.dart';
 enum HelpRequestStatus {
   pending, // submitted, waiting for provider response
   quoted, // provider sent a quote, awaiting customer acceptance
-  confirmed, // customer accepted / booking confirmed
+  accepted, // customer accepted, waiting for provider to start
+  enRoute, // provider is actually moving
   awaitingConfirmation, // initial completion request sent
   awaitingReconfirmation, // disagreement round
   disputed, // persistent disagreement
+  completed, // fully finished
   cancelled,
 }
 
@@ -74,13 +76,17 @@ class ActiveRequestBannerWidget extends StatelessWidget {
         return AppTheme.warning;
       case HelpRequestStatus.quoted:
         return AppTheme.primary;
-      case HelpRequestStatus.confirmed:
+      case HelpRequestStatus.accepted:
+        return Colors.orange;
+      case HelpRequestStatus.enRoute:
         return AppTheme.success;
       case HelpRequestStatus.awaitingConfirmation:
       case HelpRequestStatus.awaitingReconfirmation:
         return AppTheme.secondary;
       case HelpRequestStatus.disputed:
         return AppTheme.error;
+      case HelpRequestStatus.completed:
+        return AppTheme.success;
       case HelpRequestStatus.cancelled:
         return AppTheme.muted;
     }
@@ -93,14 +99,18 @@ class ActiveRequestBannerWidget extends StatelessWidget {
         return l.t('searching_providers');
       case HelpRequestStatus.quoted:
         return l.t('quote_received');
-      case HelpRequestStatus.confirmed:
+      case HelpRequestStatus.accepted:
+        return "Waiting for provider to start";
+      case HelpRequestStatus.enRoute:
         return l.t('provider_on_way');
       case HelpRequestStatus.awaitingConfirmation:
-        return "Completion Requested";
+        return request.customerConfirmation == true ? "Waiting for Provider..." : "Completion Requested";
       case HelpRequestStatus.awaitingReconfirmation:
         return "Confirm Completion";
       case HelpRequestStatus.disputed:
         return "Job Disputed";
+      case HelpRequestStatus.completed:
+        return "Job Completed";
       case HelpRequestStatus.cancelled:
         return l.t('cancel_request');
     }
@@ -112,13 +122,17 @@ class ActiveRequestBannerWidget extends StatelessWidget {
         return Icons.search_rounded;
       case HelpRequestStatus.quoted:
         return Icons.request_quote_rounded;
-      case HelpRequestStatus.confirmed:
+      case HelpRequestStatus.accepted:
+        return Icons.access_time_rounded;
+      case HelpRequestStatus.enRoute:
         return Icons.directions_car_rounded;
       case HelpRequestStatus.awaitingConfirmation:
       case HelpRequestStatus.awaitingReconfirmation:
         return Icons.help_outline_rounded;
       case HelpRequestStatus.disputed:
         return Icons.gavel_rounded;
+      case HelpRequestStatus.completed:
+        return Icons.check_circle_rounded;
       case HelpRequestStatus.cancelled:
         return Icons.cancel_outlined;
     }
@@ -126,6 +140,11 @@ class ActiveRequestBannerWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // If completed, don't show the banner anymore
+    if (request.status == HelpRequestStatus.completed) {
+      return const SizedBox.shrink();
+    }
+
     final l = LocalizationService.instance;
     return GestureDetector(
       onTap: onTap,

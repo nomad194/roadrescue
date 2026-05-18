@@ -125,13 +125,17 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
   Future<void> _loadActiveRequest() async {
     try {
       final data = await SupabaseService.instance.getActiveJobRequest();
-      if (data != null && mounted) {
-        final request = _mapToActiveRequest(data);
-        setState(() => _activeRequest = request);
-        _subscribeToRequest(data['id']?.toString() ?? '');
-        debugPrint('Active request loaded: ${request.id} - ${request.status}');
-      } else if (mounted) {
-        debugPrint('No active request found.');
+      if (mounted) {
+        if (data != null) {
+          final request = _mapToActiveRequest(data);
+          setState(() => _activeRequest = request);
+          _subscribeToRequest(data['id']?.toString() ?? '');
+          debugPrint('Active request loaded: ${request.id} - ${request.status}');
+        } else {
+          // Explicitly clear if no active request found
+          setState(() => _activeRequest = null);
+          debugPrint('No active request found.');
+        }
       }
     } catch (e) {
       debugPrint('Error loading active request: $e');
@@ -144,17 +148,19 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
       requestId,
       (record) async {
         if (!mounted) return;
-        // Re-fetch with provider join for full data
+        
+        // 1. Re-fetch full record with joins
         final updated = await SupabaseService.instance.getActiveJobRequest();
-        // Only update if we actually got a valid record back to prevent the "disappearing" bug
-        if (updated != null && mounted) {
-          setState(() => _activeRequest = _mapToActiveRequest(updated));
-        } else if (mounted) {
-          // If it was cancelled or completed, it might actually be gone
-          // But we check the record status first
-          final status = record['job_status'] as String? ?? '';
-          if (status == 'cancelled' || status == 'completed') {
+        
+        if (mounted) {
+          if (updated != null) {
+            // Still active, update data
+            setState(() => _activeRequest = _mapToActiveRequest(updated));
+          } else {
+            // Not found in "Active" filter (means it's completed or cancelled)
             setState(() => _activeRequest = null);
+            _requestSubscription?.unsubscribe();
+            _requestSubscription = null;
           }
         }
       },
@@ -169,11 +175,13 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
       case 'quoted':
         status = HelpRequestStatus.quoted;
         break;
-      case 'confirmed':
       case 'accepted':
+      case 'confirmed':
+        status = HelpRequestStatus.accepted;
+        break;
       case 'en_route':
       case 'in_progress':
-        status = HelpRequestStatus.confirmed;
+        status = HelpRequestStatus.enRoute;
         break;
       case 'awaiting_confirmation':
         status = HelpRequestStatus.awaitingConfirmation;
@@ -183,6 +191,9 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
         break;
       case 'disputed':
         status = HelpRequestStatus.disputed;
+        break;
+      case 'completed':
+        status = HelpRequestStatus.completed;
         break;
       case 'cancelled':
         status = HelpRequestStatus.cancelled;
@@ -413,23 +424,21 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
     );
   }
 
-  void _openRequestDetail() {
+  void _openRequestDetail() async {
     if (_activeRequest == null) return;
-    showModalBottomSheet(
+    await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.75,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (_, scrollController) => HelpRequestDetailSheet(
-          request: _activeRequest!,
-          onCancel: _cancelRequest,
-        ),
+      builder: (ctx) => _ActiveRequestDetailWrapper(
+        onCancel: _cancelRequest,
+        requestId: _activeRequest!.id,
       ),
     );
+    
+    // When the sheet is closed (completed, cancelled, or dismissed), 
+    // re-fetch active state to ensure banner is updated/removed.
+    _loadActiveRequest();
   }
 
   Future<void> _cancelRequest() async {
@@ -694,18 +703,18 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
                     horizontal: 8,
                   ),
                   decoration: BoxDecoration(
-                    color: isSelected ? AppTheme.primary : AppTheme.surface,
+                    color: isSelected ? Theme.of(context).primaryColor : AppTheme.surface,
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
                       color: isSelected
-                          ? AppTheme.primary
+                          ? Theme.of(context).primaryColor
                           : AppTheme.outlineVariant,
                       width: isSelected ? 2 : 1,
                     ),
                     boxShadow: isSelected
                         ? [
                             BoxShadow(
-                              color: AppTheme.primary.withAlpha(64),
+                              color: Theme.of(context).primaryColor.withAlpha(64),
                               blurRadius: 8,
                               offset: const Offset(0, 3),
                             ),
@@ -853,6 +862,139 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
           style: GoogleFonts.manrope(fontSize: 13, color: AppTheme.muted),
         ),
       ],
+    );
+  }
+}
+
+// ─── INTERNAL WRAPPER TO ENSURE BOTTOM SHEET REFRESHES ──────────────────────
+
+class _ActiveRequestDetailWrapper extends StatefulWidget {
+  final String requestId;
+  final VoidCallback onCancel;
+
+  const _ActiveRequestDetailWrapper({
+    required this.requestId,
+    required this.onCancel,
+  });
+
+  @override
+  State<_ActiveRequestDetailWrapper> createState() =>
+      _ActiveRequestDetailWrapperState();
+}
+
+class _ActiveRequestDetailWrapperState
+    extends State<_ActiveRequestDetailWrapper> {
+  RealtimeChannel? _sub;
+  ActiveHelpRequest? _req;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    
+    // Explicitly listen to ALL changes on this row
+    _sub = Supabase.instance.client
+        .channel('sheet_sync:${widget.requestId}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'job_requests',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'id',
+            value: widget.requestId,
+          ),
+          callback: (_) => _load(),
+        )
+        .subscribe();
+  }
+
+  @override
+  void dispose() {
+    _sub?.unsubscribe();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      // Query the SPECIFIC request ID, including completed ones
+      final data = await Supabase.instance.client
+          .from('job_requests')
+          .select('*, provider:provider_id(id, full_name, phone, business_name, avatar_url)')
+          .eq('id', widget.requestId)
+          .maybeSingle();
+
+      if (data == null && mounted) {
+        Navigator.pop(context);
+        return;
+      }
+
+      // Final check for mounted and non-null data
+      if (data != null && mounted) {
+        final statusStr = data['job_status'] as String? ?? 'pending';
+        
+        // If completed, close sheet immediately
+        if (statusStr == 'completed') {
+          Navigator.pop(context);
+          return;
+        }
+
+        final provider = data['provider'] as Map<String, dynamic>?;
+        HelpRequestStatus status;
+        switch (statusStr) {
+          case 'quoted': status = HelpRequestStatus.quoted; break;
+          case 'accepted':
+          case 'confirmed':
+            status = HelpRequestStatus.accepted; break;
+          case 'en_route':
+          case 'in_progress':
+            status = HelpRequestStatus.enRoute; break;
+          case 'awaiting_confirmation': status = HelpRequestStatus.awaitingConfirmation; break;
+          case 'awaiting_reconfirmation': status = HelpRequestStatus.awaitingReconfirmation; break;
+          case 'disputed': status = HelpRequestStatus.disputed; break;
+          case 'cancelled': status = HelpRequestStatus.cancelled; break;
+          default: status = HelpRequestStatus.pending;
+        }
+
+        setState(() {
+          _req = ActiveHelpRequest(
+            id: data['id']?.toString() ?? '',
+            serviceType: data['service_type'] as String? ?? '',
+            serviceIcon: data['service_icon'] as String? ?? 'build',
+            address: data['address'] as String? ?? '',
+            description: data['description'] as String? ?? '',
+            urgency: data['urgency'] as String? ?? 'standard',
+            status: status,
+            submittedAt: DateTime.tryParse(data['created_at'] as String? ?? '') ?? DateTime.now(),
+            customerConfirmation: data['customer_confirmation'] as bool?,
+            providerConfirmation: data['provider_confirmation'] as bool?,
+            confirmationRound: (data['confirmation_round'] as num?)?.toInt() ?? 0,
+            providerName: provider?['full_name'] as String?,
+            providerPhone: provider?['phone'] as String?,
+            providerBusiness: provider?['business_name'] as String?,
+            providerImageUrl: provider?['avatar_url'] as String?,
+            quotedPrice: (data['quoted_price'] as num?)?.toDouble(),
+            etaMinutes: (data['eta_minutes'] as num?)?.toInt(),
+          );
+        });
+      }
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_req == null) return const Center(child: CircularProgressIndicator());
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (_, scrollController) => HelpRequestDetailSheet(
+        request: _req!,
+        onCancel: widget.onCancel,
+        onRefresh: _load,
+      ),
     );
   }
 }

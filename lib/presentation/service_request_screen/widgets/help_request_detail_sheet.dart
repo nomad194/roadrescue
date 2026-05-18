@@ -12,12 +12,14 @@ class HelpRequestDetailSheet extends StatefulWidget {
   final ActiveHelpRequest request;
   final VoidCallback onCancel;
   final VoidCallback? onQuoteAccepted;
+  final VoidCallback? onRefresh;
 
   const HelpRequestDetailSheet({
     super.key,
     required this.request,
     required this.onCancel,
     this.onQuoteAccepted,
+    this.onRefresh,
   });
 
   @override
@@ -34,7 +36,8 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
   bool _providerAcceptsOnline = true;
 
   bool get _isConfirmed =>
-      widget.request.status == HelpRequestStatus.confirmed ||
+      widget.request.status == HelpRequestStatus.accepted ||
+      widget.request.status == HelpRequestStatus.enRoute ||
       widget.request.status == HelpRequestStatus.awaitingConfirmation ||
       widget.request.status == HelpRequestStatus.awaitingReconfirmation ||
       widget.request.status == HelpRequestStatus.disputed;
@@ -507,7 +510,20 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                 'Once payment is processed, your booking will be confirmed.',
           },
         ];
-      case HelpRequestStatus.confirmed:
+      case HelpRequestStatus.accepted:
+        return [
+          {
+            'icon': Icons.hourglass_empty_rounded,
+            'title': 'Waiting for Provider',
+            'desc': 'Your provider has been notified. They will start heading to you shortly.',
+          },
+          {
+            'icon': Icons.chat_rounded,
+            'title': 'Chat via WhatsApp',
+            'desc': 'You can coordinate directly with your provider while you wait.',
+          },
+        ];
+      case HelpRequestStatus.enRoute:
         return [
           {
             'icon': Icons.directions_car_rounded,
@@ -553,6 +569,14 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
             'desc': 'There is a disagreement about the completion. Admin is reviewing.',
           },
         ];
+      case HelpRequestStatus.completed:
+        return [
+          {
+            'icon': Icons.check_circle_rounded,
+            'title': 'Job Completed',
+            'desc': 'Thank you for using RoadRescue! Please leave a review.',
+          },
+        ];
     }
   }
 
@@ -568,9 +592,13 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
         color = AppTheme.primary;
         label = l.t('quote_received');
         break;
-      case HelpRequestStatus.confirmed:
+      case HelpRequestStatus.accepted:
+        color = Colors.orange;
+        label = "Accepted";
+        break;
+      case HelpRequestStatus.enRoute:
         color = AppTheme.success;
-        label = l.t('booking_confirmed');
+        label = "En Route";
         break;
       case HelpRequestStatus.awaitingConfirmation:
       case HelpRequestStatus.awaitingReconfirmation:
@@ -580,6 +608,10 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
       case HelpRequestStatus.disputed:
         color = AppTheme.error;
         label = "Disputed";
+        break;
+      case HelpRequestStatus.completed:
+        color = AppTheme.success;
+        label = "Done";
         break;
       case HelpRequestStatus.cancelled:
         color = AppTheme.muted;
@@ -921,7 +953,12 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
     final status = widget.request.status;
     final bool hasVoted = widget.request.customerConfirmation != null;
 
-    if (status == HelpRequestStatus.confirmed) {
+    // If the customer has already voted, always show the waiting card
+    if (hasVoted) {
+      return _buildWaitingCard(l);
+    }
+
+    if (status == HelpRequestStatus.accepted || status == HelpRequestStatus.enRoute) {
       return SizedBox(
         width: double.infinity,
         child: ElevatedButton.icon(
@@ -938,19 +975,15 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
       );
     }
 
-    if (!hasVoted) {
-      return _buildPromptCard(
-        l,
-        title: status == HelpRequestStatus.awaitingReconfirmation
-            ? "⚠️ Re-confirmation Required"
-            : "Has the service been completed?",
-        subtitle: status == HelpRequestStatus.awaitingReconfirmation
-            ? "The provider disagreed. Please confirm again: was the job done?"
-            : "The provider has marked this job as finished.",
-      );
-    }
-
-    return _buildWaitingCard(l);
+    return _buildPromptCard(
+      l,
+      title: status == HelpRequestStatus.awaitingReconfirmation
+          ? "⚠️ Re-confirmation Required"
+          : "Has the service been completed?",
+      subtitle: status == HelpRequestStatus.awaitingReconfirmation
+          ? "The provider disagreed. Please confirm again: was the job done?"
+          : "The provider has marked this job as finished.",
+    );
   }
 
   Widget _buildPromptCard(LocalizationService l, {required String title, required String subtitle}) {
@@ -1039,8 +1072,29 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
         role: 'customer',
         confirmed: confirmed,
       );
+      
+      // Signal parent to reload data immediately
+      widget.onRefresh?.call();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Response submitted successfully'),
+            backgroundColor: AppTheme.success,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } catch (e) {
-      debugPrint("Completion response error: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: AppTheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isSubmittingResponse = false);
     }

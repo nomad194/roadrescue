@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:convert';
 
 import '../../routes/app_routes.dart';
 import '../../services/supabase_service.dart';
@@ -22,7 +23,7 @@ class JobRequestsScreen extends StatefulWidget {
 class _JobRequestsScreenState extends State<JobRequestsScreen>
     with TickerProviderStateMixin {
   bool _isLoading = true;
-  String _selectedStatusFilter = 'active';
+  String _selectedStatusFilter = 'new';
   int _currentTabIndex = 0;
 
   late AnimationController _listController;
@@ -53,8 +54,14 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   List<_JobRequest> get _filteredJobs {
     return _jobs.where((job) {
       if (_selectedStatusFilter == 'active') {
-        return job.status == 'en_route';
+        // ONLY show ongoing jobs (accepted and further)
+        return job.status == 'accepted' ||
+            job.status == 'en_route' ||
+            job.status == 'awaiting_confirmation' ||
+            job.status == 'awaiting_reconfirmation' ||
+            job.status == 'disputed';
       }
+      // 'new', 'quoted', 'completed' will match their specific mapped strings
       return job.status == _selectedStatusFilter;
     }).toList();
   }
@@ -71,14 +78,17 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   }
 
   Future<void> _initData() async {
+    // 1. Load critical dependency data first
     await Future.wait([
-      _loadJobs(),
       _loadCategories(),
+      _loadProviderServices(),
       _loadSubscription(),
       _loadPlans(),
-      _loadProviderServices(),
       _loadProviderRange(),
     ]);
+
+    // 2. ONLY then load jobs using the now-populated enabled categories
+    await _loadJobs();
   }
 
   @override
@@ -100,7 +110,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
       }).toList();
 
       final data = await SupabaseService.instance.getProviderJobRequests(
-        categories: activeCategoryNames.isNotEmpty ? activeCategoryNames : null,
+        categories: activeCategoryNames,
       );
       if (mounted) {
         setState(() {
@@ -306,24 +316,38 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     ) {
       if (!mounted) return;
 
-      // Filter by enabled categories
+      final String id = record['id']?.toString() ?? '';
+      if (id.isEmpty) return;
+
+      // 1. Find existing job to handle partial payloads (REPLICA IDENTITY DEFAULT)
+      final existingIdx = _jobs.indexWhere((j) => j.id == id);
+      final String serviceType = record['service_type'] as String? ?? 
+                                (existingIdx != -1 ? _jobs[existingIdx].serviceType : '');
+      
+      final String providerId = record['provider_id']?.toString() ?? 
+                               (existingIdx != -1 ? _jobs[existingIdx].providerId ?? '' : '');
+
+      // 2. Filter by enabled categories
       final activeCategoryNames = _enabledServices.map((id) {
         final cat = _allServices.firstWhere((s) => s['id'].toString() == id);
         return cat['name'] as String;
       }).toList();
 
-      final String serviceType = record['service_type'] as String? ?? '';
-      if (activeCategoryNames.isNotEmpty && !activeCategoryNames.contains(serviceType)) {
-        return; // Ignore if not an active category for this provider
+      final bool isMyJob = providerId == SupabaseService.instance.currentUser?.id;
+      final bool supportsCategory = activeCategoryNames.contains(serviceType);
+
+      // ONLY process if we support the category OR it is already assigned to us
+      if (!supportsCategory && !isMyJob) {
+        return;
       }
 
+      // 3. Map and Update
       final updatedJob = _mapToJobRequestFromRecord(record);
       setState(() {
-        final idx = _jobs.indexWhere((j) => j.id == updatedJob.id);
-        if (idx != -1) {
-          _jobs[idx] = updatedJob;
+        if (existingIdx != -1) {
+          _jobs[existingIdx] = updatedJob;
         } else {
-          // Silent reload without showing loading skeleton
+          // New job incoming, silent reload to get full details
           SupabaseService.instance.getProviderJobRequests(
             categories: activeCategoryNames.isNotEmpty ? activeCategoryNames : null,
           ).then((data) {
@@ -347,6 +371,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
 
     return _JobRequest(
       id: data['id'] as String,
+      providerId: data['provider_id'] as String?,
       serviceType: data['service_type'] as String? ?? '',
       serviceIcon: data['service_icon'] as String? ?? 'build',
       driverName: customer?['full_name'] as String? ?? 'Unknown Customer',
@@ -372,10 +397,11 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   _JobRequest _mapToJobRequestFromRecord(Map<String, dynamic> record) {
     final statusStr = record['job_status'] as String? ?? 'pending';
     final mappedStatus = _mapStatus(statusStr);
-    final existing = _jobs.firstWhere(
-      (j) => j.id == record['id'],
-      orElse: () => _JobRequest(
+    final existingIdx = _jobs.indexWhere((j) => j.id == record['id']);
+    
+    final existing = existingIdx != -1 ? _jobs[existingIdx] : _JobRequest(
         id: record['id'] as String? ?? '',
+        providerId: record['provider_id'] as String?,
         serviceType: record['service_type'] as String? ?? '',
         serviceIcon: record['service_icon'] as String? ?? 'build',
         driverName: 'Customer',
@@ -394,11 +420,11 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         customerConfirmation: record['customer_confirmation'] as bool?,
         providerConfirmation: record['provider_confirmation'] as bool?,
         confirmationRound: (record['confirmation_round'] as num?)?.toInt() ?? 0,
-      ),
-    );
+      );
 
     return _JobRequest(
       id: existing.id,
+      providerId: record['provider_id'] as String? ?? existing.providerId,
       serviceType: record['service_type'] as String? ?? existing.serviceType,
       serviceIcon: record['service_icon'] as String? ?? existing.serviceIcon,
       driverName: existing.driverName,
@@ -646,6 +672,10 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
               etaMinutes: eta,
               paymentMethods: paymentMethods,
             );
+            
+            // Immediate local refresh for zero-latency feedback
+            await _loadJobs();
+
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -851,7 +881,11 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
       body: SafeArea(
         child: Column(
           children: [
-            ProviderStatsHeaderWidget(jobs: _jobs),
+            ProviderStatsHeaderWidget(
+              jobs: _jobs,
+              selectedStatus: _selectedStatusFilter,
+              onStatusChanged: _onStatusFilterChanged,
+            ),
             _buildTabSelector(l),
             Expanded(child: _buildTabContent(l)),
           ],
@@ -998,10 +1032,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
 
     return Column(
       children: [
-        _StatusFilterBar(
-          selectedStatus: _selectedStatusFilter,
-          onStatusChanged: _onStatusFilterChanged,
-        ),
+        _buildCompletedFilter(l),
         Expanded(
           child: _filteredJobs.isEmpty
               ? EmptyStateWidget(
@@ -1018,6 +1049,28 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
                 ),
         ),
       ],
+    );
+  }
+
+  Widget _buildCompletedFilter(LocalizationService l) {
+    final isSelected = _selectedStatusFilter == 'completed';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      alignment: Alignment.centerLeft,
+      child: ChoiceChip(
+        label: const Text(
+          'COMPLETED',
+          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800),
+        ),
+        selected: isSelected,
+        onSelected: (val) {
+          setState(() => _selectedStatusFilter = val ? 'completed' : 'new');
+        },
+        selectedColor: AppTheme.primaryContainer,
+        labelStyle: TextStyle(
+          color: isSelected ? AppTheme.primary : AppTheme.muted,
+        ),
+      ),
     );
   }
 
@@ -1445,46 +1498,6 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
 
 // ─── INTERNAL WIDGETS ────────────────────────────────────────────────────────
 
-class _StatusFilterBar extends StatelessWidget {
-  final String selectedStatus;
-  final ValueChanged<String> onStatusChanged;
-
-  const _StatusFilterBar({
-    required this.selectedStatus,
-    required this.onStatusChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final filters = ['active', 'new', 'quoted', 'completed'];
-    return Container(
-      height: 50,
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: filters.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (context, i) {
-          final isSelected = selectedStatus == filters[i];
-          return ChoiceChip(
-            label: Text(
-              filters[i].toUpperCase(),
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
-            ),
-            selected: isSelected,
-            onSelected: (_) => onStatusChanged(filters[i]),
-            selectedColor: AppTheme.primaryContainer,
-            labelStyle: TextStyle(
-              color: isSelected ? AppTheme.primary : AppTheme.muted,
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
 class _AnimatedJobCard extends StatefulWidget {
   final _JobRequest job;
   final Duration delay;
@@ -1883,9 +1896,16 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
   }
 
   Widget _buildVehicleSelectionSection(LocalizationService l) {
-    // Only show sizes that are allowed for this category by the admin
-    final List<dynamic> allowedSizes =
-        widget.service['vehicle_sizes'] as List? ?? [];
+    // Handle both List and JSON String formats from database
+    final dynamic rawSizes = widget.service['vehicle_sizes'];
+    List<dynamic> allowedSizes = [];
+    if (rawSizes is List) {
+      allowedSizes = rawSizes;
+    } else if (rawSizes is String) {
+      try {
+        allowedSizes = json.decode(rawSizes) as List;
+      } catch (_) {}
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2245,8 +2265,9 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
 // ─── MODELS ──────────────────────────────────────────────────────────────────
 
 class _JobRequest {
-  final String id,
-      serviceType,
+  final String id;
+  final String? providerId;
+  final String serviceType,
       serviceIcon,
       driverName,
       driverPhone,
@@ -2266,6 +2287,7 @@ class _JobRequest {
 
   _JobRequest({
     required this.id,
+    this.providerId,
     required this.serviceType,
     required this.serviceIcon,
     required this.driverName,

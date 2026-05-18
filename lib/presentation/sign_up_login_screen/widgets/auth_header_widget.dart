@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../services/localization_service.dart';
+import '../../../services/theme_service.dart';
 
 class AuthHeaderWidget extends StatefulWidget {
   final bool isLogin;
@@ -41,15 +42,22 @@ class _AuthHeaderWidgetState extends State<AuthHeaderWidget>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final themeService = ThemeService.instance;
+    
     return Container(
       width: double.infinity,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF1A56DB), Color(0xFF1E40AF), Color(0xFF1D4ED8)],
+          colors: [
+            theme.colorScheme.primary,
+            theme.colorScheme.primary.withAlpha(200),
+            theme.colorScheme.primary.withAlpha(230),
+          ],
         ),
-        borderRadius: BorderRadius.only(
+        borderRadius: const BorderRadius.only(
           bottomLeft: Radius.circular(28),
           bottomRight: Radius.circular(28),
         ),
@@ -62,8 +70,8 @@ class _AuthHeaderWidgetState extends State<AuthHeaderWidget>
             child: FadeTransition(
               opacity: _opacityAnimation,
               child: Container(
-                width: 72,
-                height: 72,
+                width: 80,
+                height: 80,
                 decoration: BoxDecoration(
                   color: Colors.white.withAlpha(38),
                   borderRadius: BorderRadius.circular(20),
@@ -72,11 +80,24 @@ class _AuthHeaderWidgetState extends State<AuthHeaderWidget>
                     width: 1.5,
                   ),
                 ),
-                child: const Icon(
-                  Icons.local_shipping_rounded,
-                  size: 38,
-                  color: Colors.white,
-                ),
+                child: themeService.logoUrl.isNotEmpty 
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: Image.network(
+                        themeService.logoUrl,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.local_shipping_rounded,
+                          size: 38,
+                          color: Colors.white,
+                        ),
+                      ),
+                    )
+                  : const Icon(
+                      Icons.local_shipping_rounded,
+                      size: 38,
+                      color: Colors.white,
+                    ),
               ),
             ),
           ),
@@ -84,7 +105,7 @@ class _AuthHeaderWidgetState extends State<AuthHeaderWidget>
           FadeTransition(
             opacity: _opacityAnimation,
             child: Text(
-              LocalizationService.instance.t('app_name'),
+              themeService.appName.isNotEmpty ? themeService.appName : LocalizationService.instance.t('app_name'),
               style: GoogleFonts.manrope(
                 fontSize: 26,
                 fontWeight: FontWeight.w800,
@@ -97,9 +118,9 @@ class _AuthHeaderWidgetState extends State<AuthHeaderWidget>
           FadeTransition(
             opacity: _opacityAnimation,
             child: Text(
-              widget.isLogin
+              themeService.appTagline.isNotEmpty ? themeService.appTagline : (widget.isLogin
                   ? LocalizationService.instance.t('welcome_back_subtitle')
-                  : LocalizationService.instance.t('join_subtitle'),
+                  : LocalizationService.instance.t('join_subtitle')),
               style: GoogleFonts.manrope(
                 fontSize: 13,
                 color: Colors.white.withAlpha(204),

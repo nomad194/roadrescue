@@ -193,8 +193,27 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
         role: 'provider',
         confirmed: confirmed,
       );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Response submitted successfully'),
+            backgroundColor: AppTheme.success,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
       widget.onStatusChanged?.call();
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: AppTheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
     if (mounted) setState(() => _isSubmittingResponse = false);
   }
 
@@ -265,7 +284,9 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
     final isUrgent = widget.job.urgency == 'urgent';
     final serviceColor = _serviceColor(widget.job.serviceType);
     final isConfirmed =
-        widget.job.status == 'accepted' || widget.job.status == 'confirmed';
+        widget.job.status == 'accepted' || widget.job.status == 'confirmed' ||
+        widget.job.status == 'awaiting_confirmation' ||
+        widget.job.status == 'awaiting_reconfirmation';
     final isEnRoute = widget.job.status == 'en_route';
     final l = LocalizationService.instance;
 
@@ -521,8 +542,8 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
                       ],
                     ),
                     const SizedBox(width: 12),
-                    _buildStatusBadge(l),
-                    const Spacer(),
+                    Expanded(child: _buildStatusBadge(l)),
+                    const SizedBox(width: 8),
                     // Expand toggle
                     GestureDetector(
                       onTap: () => setState(() => _isExpanded = !_isExpanded),
@@ -541,23 +562,25 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    // Action button
+                  ],
+                ),
+                const SizedBox(height: 12),
+                // Action Buttons Wrap (Fixes overflow)
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
                     if (!widget.job.quoteSent)
                       _ActionButton(
                         label: l.t('send_quote'),
                         icon: Icons.send_rounded,
-                        color: AppTheme.primary,
+                        color: Theme.of(context).primaryColor,
                         onTap: widget.onSendQuote,
                       )
                     else if (isConfirmed)
                       _ActionButton(
-                        label: _markingEnRoute
-                            ? l.t('loading')
-                            : l.t('on_my_way'),
-                        icon: _markingEnRoute
-                            ? Icons.hourglass_empty_rounded
-                            : Icons.directions_car_rounded,
+                        label: _markingEnRoute ? l.t('loading') : l.t('on_my_way'),
+                        icon: _markingEnRoute ? Icons.hourglass_empty_rounded : Icons.directions_car_rounded,
                         color: const Color(0xFF0891B2),
                         onTap: _markingEnRoute ? () {} : _onMyWay,
                       )
@@ -567,25 +590,23 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
                         icon: Icons.navigation_rounded,
                         color: AppTheme.success,
                         onTap: _openNavigation,
-                      )
-                    else
-                      const SizedBox.shrink(),
+                      ),
 
                     // ── Completion Flow Trigger ──
-                    if (isEnRoute || isConfirmed) ...[
-                      const SizedBox(width: 8),
+                    if ((isEnRoute || isConfirmed) && widget.job.providerConfirmation == null)
                       _ActionButton(
                         label: _isSubmittingResponse ? '...' : 'Done',
                         icon: Icons.check_circle_outline_rounded,
                         color: AppTheme.success,
                         onTap: _isSubmittingResponse ? () {} : () => _submitCompletionResponse(true),
                       ),
-                    ],
                   ],
                 ),
 
                 // ── Completion Prompts (Mismatches) ──
-                if ((widget.job.status == 'awaiting_confirmation' || widget.job.status == 'awaiting_reconfirmation') && widget.job.providerConfirmation == null) ...[
+                if ((widget.job.status == 'awaiting_confirmation' || widget.job.status == 'awaiting_reconfirmation') && 
+                    widget.job.providerConfirmation == null && 
+                    widget.job.customerConfirmation != null) ...[
                   const SizedBox(height: 12),
                   _buildProviderCompletionPrompt(l),
                 ],
@@ -621,13 +642,21 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
 
     switch (widget.job.status) {
       case 'quoted':
-        color = AppTheme.primary;
+        color = Theme.of(context).primaryColor;
         label = l.t('quoted').toUpperCase();
         break;
       case 'accepted':
       case 'confirmed':
         color = AppTheme.success;
         label = l.t('active').toUpperCase();
+        break;
+      case 'awaiting_confirmation':
+        color = AppTheme.secondary;
+        label = "PENDING CONFIRMATION";
+        break;
+      case 'awaiting_reconfirmation':
+        color = AppTheme.warning;
+        label = "RE-CONFIRMING";
         break;
       case 'en_route':
         color = const Color(0xFF0891B2);

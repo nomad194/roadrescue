@@ -73,7 +73,13 @@ class SupabaseService {
           .select('*, customer:customer_id(full_name, phone, avatar_url)');
 
       if (categories != null && categories.isNotEmpty) {
-        query = query.inFilter('service_type', categories);
+        // filter for jobs matching my active categories OR jobs already assigned to me
+        // We use double quotes for category names to handle spaces correctly in PostgREST .or()
+        final catList = categories.map((c) => '"$c"').join(',');
+        query = query.or('service_type.in.($catList),provider_id.eq.$userId');
+      } else if (categories != null && categories.isEmpty) {
+        // Only show jobs explicitly assigned to me if no categories are enabled
+        query = query.eq('provider_id', userId);
       }
 
       final response = await query.order('created_at', ascending: false);
@@ -103,6 +109,9 @@ class SupabaseService {
             'confirmed',
             'en_route',
             'in_progress',
+            'awaiting_confirmation',
+            'awaiting_reconfirmation',
+            'disputed',
           ])
           .order('created_at', ascending: false)
           .limit(1);
@@ -211,57 +220,64 @@ class SupabaseService {
     required String role, // 'customer' or 'provider'
     required bool confirmed,
   }) async {
-    // 1. Fetch current state
+    // 1. Fetch current state (bypass cache to get fresh data)
     final job = await client
         .from('job_requests')
         .select('job_status, customer_confirmation, provider_confirmation, confirmation_round')
         .eq('id', requestId)
         .single();
 
-    final String status = job['job_status'] as String;
+    final String currentStatus = job['job_status'] as String;
+    final int currentRound = (job['confirmation_round'] as num?)?.toInt() ?? 0;
+    
+    // Get existing values from DB
     bool? customerConf = job['customer_confirmation'] as bool?;
     bool? providerConf = job['provider_confirmation'] as bool?;
-    int round = (job['confirmation_round'] as num?)?.toInt() ?? 0;
 
-    // 2. Update local tracking variables based on role
+    // 2. Update the specific role's flag
     if (role == 'customer') {
       customerConf = confirmed;
     } else {
       providerConf = confirmed;
     }
 
-    String nextStatus = status;
-    int nextRound = round;
+    String nextStatus = currentStatus;
+    int nextRound = currentRound;
 
     // ─── LOGIC ENGINE ───
 
-    if (status == 'accepted' || status == 'confirmed' || status == 'en_route' || status == 'in_progress') {
+    if (currentStatus == 'accepted' || currentStatus == 'confirmed' || currentStatus == 'en_route' || currentStatus == 'in_progress') {
       // First person to tap "Completed"
       nextStatus = 'awaiting_confirmation';
       nextRound = 1;
-    } else if (status == 'awaiting_confirmation') {
-      // Second person responding to Round 1
+    } 
+    else if (currentStatus == 'awaiting_confirmation') {
+      // Check if we now have agreement
       if (customerConf == true && providerConf == true) {
         nextStatus = 'completed';
-      } else if (customerConf != null && providerConf != null) {
-        // One said Yes, one said No
-        nextStatus = 'awaiting_reconfirmation';
-        nextRound = 2;
-        // Reset confirmations for the new round
-        customerConf = null;
-        providerConf = null;
-      }
-    } else if (status == 'awaiting_reconfirmation') {
-      // Responding to Round 2
-      if (customerConf == true && providerConf == true) {
-        nextStatus = 'completed';
-      } else if (customerConf == false && providerConf == false) {
-        nextStatus = 'in_progress'; // Both agree it wasn't done
         nextRound = 0;
         customerConf = null;
         providerConf = null;
       } else if (customerConf != null && providerConf != null) {
-        // Mismatch persists after Round 2
+        // Mismatch occurred (one said Yes, other said No)
+        nextStatus = 'awaiting_reconfirmation';
+        nextRound = 2;
+        customerConf = null;
+        providerConf = null;
+      }
+    } 
+    else if (currentStatus == 'awaiting_reconfirmation') {
+      if (customerConf == true && providerConf == true) {
+        nextStatus = 'completed';
+        nextRound = 0;
+        customerConf = null;
+        providerConf = null;
+      } else if (customerConf == false && providerConf == false) {
+        nextStatus = 'in_progress';
+        nextRound = 0;
+        customerConf = null;
+        providerConf = null;
+      } else if (customerConf != null && providerConf != null) {
         nextStatus = 'disputed';
       }
     }
