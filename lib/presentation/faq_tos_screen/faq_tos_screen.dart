@@ -17,12 +17,13 @@ class _FaqTosScreenState extends State<FaqTosScreen>
   late TabController _tabController;
   bool _isLoading = true;
   String _tosContent = '';
+  String _privacyContent = '';
   List<dynamic> _faqs = [];
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _loadData();
   }
 
@@ -30,29 +31,38 @@ class _FaqTosScreenState extends State<FaqTosScreen>
     setState(() => _isLoading = true);
     final settings = await SupabaseService.instance.getAppSettings([
       'terms_of_service',
+      'privacy_policy',
       'faq_content',
     ]);
     if (mounted) {
       setState(() {
-        _tosContent = settings['terms_of_service'] ?? 'No terms available.';
+        final l = LocalizationService.instance;
+        
+        // Handle ToS
+        final tosRaw = settings['terms_of_service'] ?? '';
+        try {
+          final decoded = json.decode(tosRaw);
+          _tosContent = l.translateContent(Map<String, dynamic>.from(decoded), fallbackText: 'No terms available.');
+        } catch (_) {
+          _tosContent = tosRaw.isNotEmpty ? tosRaw : 'No terms available.';
+        }
+
+        // Handle Privacy
+        final privRaw = settings['privacy_policy'] ?? '';
+        try {
+          final decoded = json.decode(privRaw);
+          _privacyContent = l.translateContent(Map<String, dynamic>.from(decoded), fallbackText: 'No privacy policy available.');
+        } catch (_) {
+          _privacyContent = privRaw.isNotEmpty ? privRaw : 'No privacy policy available.';
+        }
+
+        // Handle FAQs
         try {
           final faqJson = settings['faq_content'];
           if (faqJson != null) {
-            final decoded = json.decode(faqJson);
-            if (decoded is List) {
-              _faqs = decoded;
-            } else {
-              _faqs = [];
-            }
+            _faqs = json.decode(faqJson) as List;
           } else {
-            // Default FAQs if none in DB
-            _faqs = [
-              {
-                'q': 'How quickly can I get help?',
-                'a': 'Most providers arrive within 15–45 minutes.',
-              },
-              {'q': 'How do I pay?', 'a': 'You can pay via card or cash.'},
-            ];
+            _faqs = [];
           }
         } catch (_) {
           _faqs = [];
@@ -87,9 +97,11 @@ class _FaqTosScreenState extends State<FaqTosScreen>
           labelColor: AppTheme.primary,
           unselectedLabelColor: AppTheme.muted,
           indicatorColor: AppTheme.primary,
+          isScrollable: true,
           tabs: [
             Tab(text: l.t('faq')),
             Tab(text: l.t('terms_of_service')),
+            Tab(text: l.t('privacy_policy')),
           ],
         ),
       ),
@@ -97,7 +109,11 @@ class _FaqTosScreenState extends State<FaqTosScreen>
           ? const Center(child: CircularProgressIndicator())
           : TabBarView(
               controller: _tabController,
-              children: [_buildFaqTab(l), _buildTosTab()],
+              children: [
+                _buildFaqTab(l),
+                _buildTosTab(_tosContent),
+                _buildTosTab(_privacyContent),
+              ],
             ),
     );
   }
@@ -116,16 +132,19 @@ class _FaqTosScreenState extends State<FaqTosScreen>
       itemCount: _faqs.length,
       itemBuilder: (context, index) {
         final faq = _faqs[index];
+        final q = l.translateContent(Map<String, dynamic>.from(faq['translations_q'] ?? {}), fallbackText: faq['q'] ?? '');
+        final a = l.translateContent(Map<String, dynamic>.from(faq['translations_a'] ?? {}), fallbackText: faq['a'] ?? '');
+        
         return ExpansionTile(
           title: Text(
-            faq['q'] ?? '',
+            q,
             style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
           ),
           children: [
             Padding(
               padding: const EdgeInsets.all(16),
               child: Text(
-                faq['a'] ?? '',
+                a,
                 style: GoogleFonts.manrope(fontSize: 14, height: 1.5),
               ),
             ),
@@ -135,11 +154,11 @@ class _FaqTosScreenState extends State<FaqTosScreen>
     );
   }
 
-  Widget _buildTosTab() {
+  Widget _buildTosTab(String content) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Text(
-        _tosContent,
+        content,
         style: GoogleFonts.manrope(
           fontSize: 14,
           height: 1.6,
