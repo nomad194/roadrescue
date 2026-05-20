@@ -32,21 +32,46 @@ class ThemeService extends ChangeNotifier {
           ]);
 
       for (final row in response) {
-        final key = row['setting_key'];
-        final value = row['setting_value'] as String;
-        
-        if (key == 'app_name' && value.isNotEmpty) _appName = value;
-        if (key == 'app_tagline' && value.isNotEmpty) _appTagline = value;
-        if (key == 'logo_url') _logoUrl = value;
-
-        final color = _parseHexColor(value);
-        if (color != null) {
-          if (key == 'primary_color') _primaryColor = color;
-          if (key == 'secondary_color') _secondaryColor = color;
-        }
+        _applySetting(row['setting_key'], row['setting_value'] as String);
       }
+      
+      // Start listening for real-time changes
+      _subscribeToChanges();
+      
       notifyListeners();
     } catch (_) {}
+  }
+
+  void _subscribeToChanges() {
+    Supabase.instance.client
+        .channel('public:app_settings')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'app_settings',
+          callback: (payload) {
+            final newData = payload.newRecord;
+            if (newData.isNotEmpty) {
+              final key = newData['setting_key'] as String;
+              final val = newData['setting_value'] as String;
+              _applySetting(key, val);
+              notifyListeners();
+            }
+          },
+        )
+        .subscribe();
+  }
+
+  void _applySetting(String key, String value) {
+    if (key == 'app_name' && value.isNotEmpty) _appName = value;
+    if (key == 'app_tagline' && value.isNotEmpty) _appTagline = value;
+    if (key == 'logo_url') _logoUrl = value;
+
+    final color = _parseHexColor(value);
+    if (color != null) {
+      if (key == 'primary_color') _primaryColor = color;
+      if (key == 'secondary_color') _secondaryColor = color;
+    }
   }
 
   void updateSettings({Color? primary, Color? secondary, String? name, String? tagline, String? logo}) {
