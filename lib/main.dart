@@ -5,6 +5,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_stripe/flutter_stripe.dart' hide Card;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import './config/app_env.dart';
 import './services/localization_service.dart';
 import './services/notification_service.dart';
 import './services/supabase_service.dart';
@@ -14,6 +15,14 @@ import 'core/app_export.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Avoid google_fonts disk cache (path_provider JNI / libdartjni.so fails on some Android targets)
+  if (!kIsWeb) {
+    GoogleFonts.config.allowRuntimeFetching = false;
+  }
+
+  // Load env.json (asset) or --dart-define-from-file before services start
+  await AppEnv.load();
 
   // 1. Initialize Supabase (CRITICAL)
   await SupabaseService.initialize();
@@ -26,10 +35,7 @@ void main() async {
 
   // 2. Initialize Other Services
   try {
-    Stripe.publishableKey = const String.fromEnvironment(
-      'STRIPE_PUBLISHABLE_KEY',
-      defaultValue: '',
-    );
+    Stripe.publishableKey = AppEnv.stripePublishableKey;
     if (kIsWeb) {
       await Stripe.instance.applySettings();
     }
@@ -112,7 +118,7 @@ class SetupRequiredApp extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'Please provide your SUPABASE_URL and SUPABASE_ANON_KEY to start the app.',
+                  'Add SUPABASE_URL and SUPABASE_ANON_KEY to env.json in the project root, then restart.',
                   style: TextStyle(fontSize: 15, color: Color(0xFF4B5563)),
                   textAlign: TextAlign.center,
                 ),
@@ -141,7 +147,7 @@ class SetupRequiredApp extends StatelessWidget {
                         style: TextStyle(fontSize: 13),
                       ),
                       Text(
-                        '3. Add them to your build settings or code',
+                        '3. Save as env.json and run: flutter run',
                         style: TextStyle(fontSize: 13),
                       ),
                     ],
@@ -235,7 +241,7 @@ class _MyAppState extends State<MyApp> {
               },
               // 🚨 END CRITICAL SECTION
               debugShowCheckedModeBanner: false,
-              routes: AppRoutes.routes,
+              onGenerateRoute: AppRoutes.onGenerateRoute,
               initialRoute: AppRoutes.initial,
             );
           },

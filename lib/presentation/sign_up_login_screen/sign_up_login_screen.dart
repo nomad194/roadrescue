@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -190,8 +191,10 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
                   _buildToggleModeRow(),
                   const SizedBox(height: 20),
                   const SocialLoginWidget(),
-                  const SizedBox(height: 24),
-                  DemoCredentialsWidget(selectedRole: _selectedRole),
+                  if (kDebugMode) ...[
+                    const SizedBox(height: 24),
+                    DemoCredentialsWidget(selectedRole: _selectedRole),
+                  ],
                   const SizedBox(height: 32),
                 ],
               ),
@@ -250,8 +253,10 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
                         _buildToggleModeRow(),
                         const SizedBox(height: 20),
                         const SocialLoginWidget(),
-                        const SizedBox(height: 24),
-                        DemoCredentialsWidget(selectedRole: _selectedRole),
+                        if (kDebugMode) ...[
+                          const SizedBox(height: 24),
+                          DemoCredentialsWidget(selectedRole: _selectedRole),
+                        ],
                         const SizedBox(height: 32),
                       ],
                     ),

@@ -23,25 +23,42 @@ class AppTheme {
   static const Color outlineVariant = Color(0xFFE2E8F0);
   static const Color muted = Color(0xFF94A3B8);
 
-  static TextTheme _buildTextTheme() {
-    return GoogleFonts.manropeTextTheme(
-      const TextTheme(
-        displayLarge: TextStyle(fontSize: 32, fontWeight: FontWeight.w700, letterSpacing: -0.5),
-        displayMedium: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, letterSpacing: -0.3),
-        displaySmall: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
-        headlineLarge: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
-        headlineMedium: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-        headlineSmall: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-        titleLarge: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-        titleMedium: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-        titleSmall: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-        bodyLarge: TextStyle(fontSize: 15, fontWeight: FontWeight.w400),
-        bodyMedium: TextStyle(fontSize: 14, fontWeight: FontWeight.w400),
-        bodySmall: TextStyle(fontSize: 13, fontWeight: FontWeight.w400),
-        labelLarge: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-        labelMedium: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.2),
-        labelSmall: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.3),
-      ),
+  static const String _fontFamily = 'Manrope';
+
+  static const TextTheme _baseTextTheme = TextTheme(
+    displayLarge: TextStyle(fontFamily: _fontFamily, fontSize: 32, fontWeight: FontWeight.w700, letterSpacing: -0.5),
+    displayMedium: TextStyle(fontFamily: _fontFamily, fontSize: 28, fontWeight: FontWeight.w700, letterSpacing: -0.3),
+    displaySmall: TextStyle(fontFamily: _fontFamily, fontSize: 24, fontWeight: FontWeight.w700),
+    headlineLarge: TextStyle(fontFamily: _fontFamily, fontSize: 22, fontWeight: FontWeight.w700),
+    headlineMedium: TextStyle(fontFamily: _fontFamily, fontSize: 20, fontWeight: FontWeight.w600),
+    headlineSmall: TextStyle(fontFamily: _fontFamily, fontSize: 18, fontWeight: FontWeight.w600),
+    titleLarge: TextStyle(fontFamily: _fontFamily, fontSize: 16, fontWeight: FontWeight.w600),
+    titleMedium: TextStyle(fontFamily: _fontFamily, fontSize: 15, fontWeight: FontWeight.w600),
+    titleSmall: TextStyle(fontFamily: _fontFamily, fontSize: 14, fontWeight: FontWeight.w600),
+    bodyLarge: TextStyle(fontFamily: _fontFamily, fontSize: 15, fontWeight: FontWeight.w400),
+    bodyMedium: TextStyle(fontFamily: _fontFamily, fontSize: 14, fontWeight: FontWeight.w400),
+    bodySmall: TextStyle(fontFamily: _fontFamily, fontSize: 13, fontWeight: FontWeight.w400),
+    labelLarge: TextStyle(fontFamily: _fontFamily, fontSize: 14, fontWeight: FontWeight.w600),
+    labelMedium: TextStyle(fontFamily: _fontFamily, fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.2),
+    labelSmall: TextStyle(fontFamily: _fontFamily, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.3),
+  );
+
+  static TextTheme _buildTextTheme() => _baseTextTheme;
+
+  /// Manrope text style (bundled font; works with allowRuntimeFetching disabled).
+  static TextStyle manrope({
+    double? fontSize,
+    FontWeight? fontWeight,
+    Color? color,
+    double? letterSpacing,
+    TextDecoration? decoration,
+  }) {
+    return GoogleFonts.manrope(
+      fontSize: fontSize,
+      fontWeight: fontWeight,
+      color: color,
+      letterSpacing: letterSpacing,
+      decoration: decoration,
     );
   }
 
@@ -73,7 +90,7 @@ class AppTheme {
         elevation: 0,
         scrolledUnderElevation: 1,
         shadowColor: Colors.black.withAlpha(20),
-        titleTextStyle: GoogleFonts.manrope(fontSize: 18, fontWeight: FontWeight.w700, color: onSurface),
+        titleTextStyle: manrope(fontSize: 18, fontWeight: FontWeight.w700, color: onSurface),
         iconTheme: const IconThemeData(color: onSurface),
         surfaceTintColor: Colors.transparent,
       ),
@@ -82,9 +99,9 @@ class AppTheme {
         indicatorColor: customPrimaryContainer,
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
-            return GoogleFonts.manrope(fontSize: 12, fontWeight: FontWeight.w600, color: primary);
+            return manrope(fontSize: 12, fontWeight: FontWeight.w600, color: primary);
           }
-          return GoogleFonts.manrope(fontSize: 12, fontWeight: FontWeight.w500, color: muted);
+          return manrope(fontSize: 12, fontWeight: FontWeight.w500, color: muted);
         }),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
@@ -105,9 +122,9 @@ class AppTheme {
         errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: error, width: 1)),
         focusedErrorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: error, width: 2)),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        labelStyle: GoogleFonts.manrope(fontSize: 14, color: onSurfaceVariant),
-        hintStyle: GoogleFonts.manrope(fontSize: 14, color: muted),
-        errorStyle: GoogleFonts.manrope(fontSize: 12, color: error),
+        labelStyle: manrope(fontSize: 14, color: onSurfaceVariant),
+        hintStyle: manrope(fontSize: 14, color: muted),
+        errorStyle: manrope(fontSize: 12, color: error),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
@@ -117,7 +134,7 @@ class AppTheme {
           shadowColor: Colors.transparent,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           padding: const EdgeInsets.symmetric(vertical: 16),
-          textStyle: GoogleFonts.manrope(fontSize: 15, fontWeight: FontWeight.w600),
+          textStyle: manrope(fontSize: 15, fontWeight: FontWeight.w600),
           minimumSize: const Size(double.infinity, 52),
         ),
       ),
@@ -127,13 +144,13 @@ class AppTheme {
           side: const BorderSide(color: outline, width: 1.5),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           padding: const EdgeInsets.symmetric(vertical: 14),
-          textStyle: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w600),
+          textStyle: manrope(fontSize: 14, fontWeight: FontWeight.w600),
         ),
       ),
       chipTheme: ChipThemeData(
         backgroundColor: surfaceVariant,
         selectedColor: customPrimaryContainer,
-        labelStyle: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w500),
+        labelStyle: manrope(fontSize: 13, fontWeight: FontWeight.w500),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         side: BorderSide.none,
       ),

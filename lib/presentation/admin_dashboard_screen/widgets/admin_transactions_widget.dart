@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../../theme/app_theme.dart';
 import '../../../services/localization_service.dart';
 
@@ -13,95 +16,92 @@ class AdminTransactionsWidget extends StatefulWidget {
 
 class _AdminTransactionsWidgetState extends State<AdminTransactionsWidget> {
   String _filterStatus = 'All';
+  bool _isLoading = true;
+  String? _error;
+  List<Map<String, dynamic>> _transactions = [];
 
   List<String> get _filters {
     final l = LocalizationService.instance;
     return [l.t('all'), l.t('done'), 'Pending', 'Refunded'];
   }
 
-  final List<Map<String, dynamic>> _transactions = [
-    {
-      'id': 'TXN-0041',
-      'customer': 'Alex Turner',
-      'provider': 'Sarah Williams',
-      'service': 'Flat Tire',
-      'amount': '\$85.00',
+  @override
+  void initState() {
+    super.initState();
+    _loadTransactions();
+  }
+
+  Future<void> _loadTransactions() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final response = await Supabase.instance.client
+          .from('payments')
+          .select(
+            'id, amount, payment_status, currency, created_at, '
+            'customer:customer_id(full_name), '
+            'provider:provider_id(full_name), '
+            'job:job_request_id(service_type)',
+          )
+          .order('created_at', ascending: false)
+          .limit(100);
+
+      final rows = (response as List).cast<Map<String, dynamic>>();
+      _transactions = rows.map(_mapPaymentRow).toList();
+    } catch (e) {
+      _error = e.toString();
+      _transactions = [];
+    }
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Map<String, dynamic> _mapPaymentRow(Map<String, dynamic> row) {
+    final status = _displayStatus(row['payment_status'] as String?);
+    final amount = (row['amount'] as num?)?.toDouble() ?? 0;
+    final createdAt = DateTime.tryParse(row['created_at'] as String? ?? '');
+    final customer = row['customer'] as Map<String, dynamic>?;
+    final provider = row['provider'] as Map<String, dynamic>?;
+    final job = row['job'] as Map<String, dynamic>?;
+
+    return {
+      'id': 'TXN-${((row['id'] as String? ?? '').length >= 8 ? (row['id'] as String).substring(0, 8) : (row['id'] as String? ?? 'N/A')).toUpperCase()}',
+      'customer': customer?['full_name'] as String? ?? 'Customer',
+      'provider': provider?['full_name'] as String? ?? 'Provider',
+      'service': job?['service_type'] as String? ?? 'Service',
+      'amount': '\$${amount.toStringAsFixed(2)}',
       'method': 'Card',
-      'status': 'Completed',
-      'date': 'May 2, 2026',
-      'time': '09:14 AM',
-    },
-    {
-      'id': 'TXN-0040',
-      'customer': 'Priya Sharma',
-      'provider': 'David Chen',
-      'service': 'Fuel Delivery',
-      'amount': '\$45.00',
-      'method': 'Cash',
-      'status': 'Completed',
-      'date': 'May 2, 2026',
-      'time': '07:52 AM',
-    },
-    {
-      'id': 'TXN-0039',
-      'customer': 'Mike Foster',
-      'provider': 'Sarah Williams',
-      'service': 'Lockout',
-      'amount': '\$120.00',
-      'method': 'Card',
-      'status': 'Pending',
-      'date': 'May 1, 2026',
-      'time': '11:30 PM',
-    },
-    {
-      'id': 'TXN-0038',
-      'customer': 'Lisa Chen',
-      'provider': 'David Chen',
-      'service': 'Jump Start',
-      'amount': '\$65.00',
-      'method': 'Wallet',
-      'status': 'Completed',
-      'date': 'May 1, 2026',
-      'time': '06:45 PM',
-    },
-    {
-      'id': 'TXN-0037',
-      'customer': 'James Park',
-      'provider': 'Emma Rodriguez',
-      'service': 'Towing',
-      'amount': '\$210.00',
-      'method': 'Card',
-      'status': 'Refunded',
-      'date': 'Apr 30, 2026',
-      'time': '02:20 PM',
-    },
-    {
-      'id': 'TXN-0036',
-      'customer': 'Nina Patel',
-      'provider': 'Sarah Williams',
-      'service': 'Flat Tire',
-      'amount': '\$75.00',
-      'method': 'Cash',
-      'status': 'Completed',
-      'date': 'Apr 30, 2026',
-      'time': '10:05 AM',
-    },
-    {
-      'id': 'TXN-0035',
-      'customer': 'Carlos Ruiz',
-      'provider': 'David Chen',
-      'service': 'Fuel Delivery',
-      'amount': '\$50.00',
-      'method': 'Card',
-      'status': 'Completed',
-      'date': 'Apr 29, 2026',
-      'time': '08:33 AM',
-    },
-  ];
+      'status': status,
+      'date': createdAt != null
+          ? DateFormat('MMM d, yyyy').format(createdAt)
+          : '',
+      'time': createdAt != null
+          ? DateFormat('hh:mm a').format(createdAt)
+          : '',
+    };
+  }
+
+  String _displayStatus(String? dbStatus) {
+    switch (dbStatus) {
+      case 'succeeded':
+        return 'Completed';
+      case 'refunded':
+        return 'Refunded';
+      case 'pending':
+      case 'failed':
+      default:
+        return 'Pending';
+    }
+  }
 
   List<Map<String, dynamic>> get _filteredTransactions {
     final l = LocalizationService.instance;
-    if (_filterStatus == l.t('all')) return _transactions;
+    if (_filterStatus == l.t('all') || _filterStatus == 'All') {
+      return _transactions;
+    }
     return _transactions.where((t) {
       if (_filterStatus == l.t('done')) return t['status'] == 'Completed';
       if (_filterStatus == 'Pending') return t['status'] == 'Pending';
@@ -175,16 +175,32 @@ class _AdminTransactionsWidgetState extends State<AdminTransactionsWidget> {
   @override
   Widget build(BuildContext context) {
     final l = LocalizationService.instance;
-    final filtered = _filteredTransactions;
     if (_filterStatus == 'All') _filterStatus = l.t('all');
 
-    final completed = _transactions
-        .where((t) => t['status'] == 'Completed')
-        .length;
-    final pending = _transactions.where((t) => t['status'] == 'Pending').length;
-    final refunded = _transactions
-        .where((t) => t['status'] == 'Refunded')
-        .length;
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error != null) {
+      return Column(
+        children: [
+          Text(
+            'Could not load transactions',
+            style: GoogleFonts.manrope(color: AppTheme.error),
+          ),
+          const SizedBox(height: 8),
+          TextButton(onPressed: _loadTransactions, child: const Text('Retry')),
+        ],
+      );
+    }
+
+    final filtered = _filteredTransactions;
+    final completed =
+        _transactions.where((t) => t['status'] == 'Completed').length;
+    final pending =
+        _transactions.where((t) => t['status'] == 'Pending').length;
+    final refunded =
+        _transactions.where((t) => t['status'] == 'Refunded').length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -205,7 +221,6 @@ class _AdminTransactionsWidgetState extends State<AdminTransactionsWidget> {
           ),
         ),
         const SizedBox(height: 14),
-        // Summary cards
         Row(
           children: [
             Expanded(
@@ -287,146 +302,155 @@ class _AdminTransactionsWidgetState extends State<AdminTransactionsWidget> {
           ),
         ),
         const SizedBox(height: 14),
-        ListView.separated(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: filtered.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
-          itemBuilder: (context, index) {
-            final txn = filtered[index];
-            return Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppTheme.surface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppTheme.outlineVariant),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: AppTheme.surfaceVariant,
-                          borderRadius: BorderRadius.circular(8),
+        if (filtered.isEmpty)
+          Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              'No transactions yet',
+              style: GoogleFonts.manrope(color: AppTheme.muted),
+            ),
+          )
+        else
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: filtered.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final txn = filtered[index];
+              return Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppTheme.surface,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppTheme.outlineVariant),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppTheme.surfaceVariant,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            _methodIcon(txn['method'] as String),
+                            size: 18,
+                            color: AppTheme.onSurfaceVariant,
+                          ),
                         ),
-                        child: Icon(
-                          _methodIcon(txn['method']),
-                          size: 18,
-                          color: AppTheme.onSurfaceVariant,
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                txn['id'] as String,
+                                style: GoogleFonts.manrope(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.onSurface,
+                                ),
+                              ),
+                              Text(
+                                '${txn['service']} · ${txn['method']}',
+                                style: GoogleFonts.manrope(
+                                  fontSize: 12,
+                                  color: AppTheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
-                              txn['id'],
+                              txn['amount'] as String,
                               style: GoogleFonts.manrope(
-                                fontSize: 13,
+                                fontSize: 15,
                                 fontWeight: FontWeight.w700,
                                 color: AppTheme.onSurface,
                               ),
                             ),
-                            Text(
-                              '${txn['service']} · ${txn['method']}',
-                              style: GoogleFonts.manrope(
-                                fontSize: 12,
-                                color: AppTheme.onSurfaceVariant,
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _statusBgColor(txn['status'] as String),
+                                borderRadius: BorderRadius.circular(5),
+                              ),
+                              child: Text(
+                                _statusLabel(txn['status'] as String),
+                                style: GoogleFonts.manrope(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: _statusColor(txn['status'] as String),
+                                ),
                               ),
                             ),
                           ],
                         ),
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            txn['amount'],
-                            style: GoogleFonts.manrope(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.onSurface,
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 7,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _statusBgColor(txn['status']),
-                              borderRadius: BorderRadius.circular(5),
-                            ),
-                            child: Text(
-                              _statusLabel(txn['status']),
-                              style: GoogleFonts.manrope(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: _statusColor(txn['status']),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.person_outline,
-                        size: 13,
-                        color: AppTheme.muted,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        txn['customer'],
-                        style: GoogleFonts.manrope(
-                          fontSize: 12,
-                          color: AppTheme.onSurfaceVariant,
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.person_outline,
+                          size: 13,
+                          color: AppTheme.muted,
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      const Icon(
-                        Icons.arrow_forward,
-                        size: 12,
-                        color: AppTheme.muted,
-                      ),
-                      const SizedBox(width: 8),
-                      const Icon(
-                        Icons.build_outlined,
-                        size: 13,
-                        color: AppTheme.muted,
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          txn['provider'],
+                        const SizedBox(width: 4),
+                        Text(
+                          txn['customer'] as String,
                           style: GoogleFonts.manrope(
                             fontSize: 12,
                             color: AppTheme.onSurfaceVariant,
                           ),
-                          overflow: TextOverflow.ellipsis,
                         ),
-                      ),
-                      Text(
-                        '${txn['date']} ${txn['time']}',
-                        style: GoogleFonts.manrope(
-                          fontSize: 11,
+                        const SizedBox(width: 8),
+                        const Icon(
+                          Icons.arrow_forward,
+                          size: 12,
                           color: AppTheme.muted,
                         ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
+                        const SizedBox(width: 8),
+                        const Icon(
+                          Icons.build_outlined,
+                          size: 13,
+                          color: AppTheme.muted,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            txn['provider'] as String,
+                            style: GoogleFonts.manrope(
+                              fontSize: 12,
+                              color: AppTheme.onSurfaceVariant,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        Text(
+                          '${txn['date']} ${txn['time']}',
+                          style: GoogleFonts.manrope(
+                            fontSize: 11,
+                            color: AppTheme.muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
       ],
     );
   }

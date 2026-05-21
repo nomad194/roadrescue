@@ -185,6 +185,14 @@ class NotificationService {
     );
   }
 
+  Future<void> notifyPaymentConfirmed(double amount) async {
+    await showLocalNotification(
+      title: '✅ Payment Confirmed',
+      body: 'Your payment of \$${amount.toStringAsFixed(2)} was successful.',
+      payload: 'payment_confirmed',
+    );
+  }
+
   Future<void> notifyPaymentReceived(double amount) async {
     await showLocalNotification(
       title: '💳 Payment Received',

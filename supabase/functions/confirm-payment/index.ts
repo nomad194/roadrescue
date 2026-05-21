@@ -30,17 +30,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Retrieve payment intent from Stripe
     const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-
     const paymentStatus = paymentIntent.status === 'succeeded' ? 'succeeded' : 'pending';
 
-    // Update payment record in database
     const { data: payment, error } = await supabase
       .from('payments')
       .update({
         payment_status: paymentStatus,
-        stripe_charge_id: paymentIntent.latest_charge as string ?? '',
+        stripe_charge_id: (paymentIntent.latest_charge as string) ?? '',
         updated_at: new Date().toISOString(),
       })
       .eq('stripe_payment_intent_id', paymentIntentId)
@@ -51,12 +48,20 @@ Deno.serve(async (req) => {
       console.error('Failed to update payment:', error);
     }
 
-    // If succeeded, update booking status
-    if (paymentStatus === 'succeeded' && payment?.booking_id) {
+    const jobRequestId =
+      payment?.job_request_id ??
+      paymentIntent.metadata?.job_request_id ??
+      paymentIntent.metadata?.booking_id;
+
+    if (paymentStatus === 'succeeded' && jobRequestId) {
       await supabase
-        .from('bookings')
-        .update({ booking_status: 'confirmed', updated_at: new Date().toISOString() })
-        .eq('id', payment.booking_id);
+        .from('job_requests')
+        .update({
+          job_status: 'confirmed',
+          payment_method_used: 'online',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', jobRequestId);
     }
 
     return new Response(

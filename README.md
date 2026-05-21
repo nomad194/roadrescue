@@ -1,142 +1,114 @@
-# Flutter
+# RoadRescue
 
-A modern Flutter-based mobile application utilizing the latest mobile development technologies and tools for building responsive cross-platform applications.
+Flutter mobile app for on-demand roadside assistance. Customers request help, providers quote and fulfill jobs, and admins manage the platform. Backend is Supabase (Postgres, Auth, Realtime) with Stripe payments via Edge Functions.
 
-## 📋 Prerequisites
+## Prerequisites
 
-- Flutter SDK (^3.38.4)
-- Dart SDK
-- Android Studio / VS Code with Flutter extensions
-- Android SDK / Xcode (for iOS development)
+- Flutter SDK 3.9+ (Dart 3.9+)
+- Supabase project
+- Stripe account (test mode for development)
 
-## 🛠️ Installation
+## Quick start
 
-1. Install dependencies:
+1. Copy environment template and fill in your keys:
+
+```bash
+cp env.example.json env.json
+```
+
+2. Install dependencies and run:
+
 ```bash
 flutter pub get
+flutter run
 ```
 
-2. Run the application:
+The app loads your cloud Supabase project from `env.json` automatically (bundled as an asset). You can still use `flutter run --dart-define-from-file=env.json` if you prefer compile-time defines.
 
-To run the app with environment variables defined in an env.json file, follow the steps mentioned below:
-1. Through CLI
-    ```bash
-    flutter run --dart-define-from-file=env.json
-    ```
-2. For VSCode
-    - Open .vscode/launch.json (create it if it doesn't exist).
-    - Add or modify your launch configuration to include --dart-define-from-file:
-    ```json
-    {
-        "version": "0.2.0",
-        "configurations": [
-            {
-                "name": "Launch",
-                "request": "launch",
-                "type": "dart",
-                "program": "lib/main.dart",
-                "args": [
-                    "--dart-define-from-file",
-                    "env.json"
-                ]
-            }
-        ]
-    }
-    ```
-3. For IntelliJ / Android Studio
-    - Go to Run > Edit Configurations.
-    - Select your Flutter configuration or create a new one.
-    - Add the following to the "Additional arguments" field:
-    ```bash
-    --dart-define-from-file=env.json
-    ```
+Required keys in `env.json`:
 
-## 📁 Project Structure
+| Key | Description |
+|-----|-------------|
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_ANON_KEY` | Supabase anon/public key |
+| `STRIPE_PUBLISHABLE_KEY` | Stripe publishable key |
 
-```
-flutter_app/
-├── android/            # Android-specific configuration
-├── ios/                # iOS-specific configuration
-├── lib/
-│   ├── core/           # Core utilities and services
-│   │   └── utils/      # Utility classes
-│   ├── presentation/   # UI screens and widgets
-│   │   └── splash_screen/ # Splash screen implementation
-│   ├── routes/         # Application routing
-│   ├── theme/          # Theme configuration
-│   ├── widgets/        # Reusable UI components
-│   └── main.dart       # Application entry point
-├── assets/             # Static assets (images, fonts, etc.)
-├── pubspec.yaml        # Project dependencies and configuration
-└── README.md           # Project documentation
-```
+**Security:** `env.json` is gitignored. If keys were ever committed, rotate them in the Supabase and Stripe dashboards.
 
-## 🧩 Adding Routes
+## Supabase setup
 
-To add new routes to the application, update the `lib/routes/app_routes.dart` file:
-
-```dart
-import 'package:flutter/material.dart';
-import 'package:package_name/presentation/home_screen/home_screen.dart';
-
-class AppRoutes {
-  static const String initial = '/';
-  static const String home = '/home';
-
-  static Map<String, WidgetBuilder> routes = {
-    initial: (context) => const SplashScreen(),
-    home: (context) => const HomeScreen(),
-    // Add more routes as needed
-  }
-}
-```
-
-## 🎨 Theming
-
-This project includes a comprehensive theming system with both light and dark themes:
-
-```dart
-// Access the current theme
-ThemeData theme = Theme.of(context);
-
-// Use theme colors
-Color primaryColor = theme.colorScheme.primary;
-```
-
-The theme configuration includes:
-- Color schemes for light and dark modes
-- Typography styles
-- Button themes
-- Input decoration themes
-- Card and dialog themes
-
-## 📱 Responsive Design
-
-The app is built with responsive design using the Sizer package:
-
-```dart
-// Example of responsive sizing
-Container(
-  width: 50.w, // 50% of screen width
-  height: 20.h, // 20% of screen height
-  child: Text('Responsive Container'),
-)
-```
-## 📦 Deployment
-
-Build the application for production:
+1. Link your project (optional, for CLI):
 
 ```bash
-# For Android
-flutter build apk --release
-
-# For iOS
-flutter build ios --release
+supabase link --project-ref YOUR_PROJECT_REF
 ```
 
-## 🙏 Acknowledgments
-- Built with [Rocket.new](https://rocket.new)
-- Powered by [Flutter](https://flutter.dev) & [Dart](https://dart.dev)
-- Styled with Material Design
+2. Apply migrations:
 
-Built with ❤️ on Rocket.new
+```bash
+supabase db push
+```
+
+Migrations live in [`supabase/migrations/`](supabase/migrations/). The latest migrations restore `payments` and `provider_subscriptions` and tighten RLS.
+
+3. Deploy Edge Functions and set secrets in the Supabase dashboard (Project Settings → Edge Functions → Secrets):
+
+| Secret | Used by |
+|--------|---------|
+| `STRIPE_SECRET_KEY` | `create-payment-intent`, `confirm-payment` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Edge functions (service role) |
+| `SUPABASE_URL` | Edge functions |
+
+```bash
+supabase functions deploy create-payment-intent
+supabase functions deploy confirm-payment
+```
+
+## Release builds
+
+Always pass environment defines for release builds:
+
+```bash
+flutter build apk --release --dart-define-from-file=env.json
+flutter build ios --release --dart-define-from-file=env.json
+```
+
+Android release signing: configure a release keystore in [`android/app/build.gradle.kts`](android/app/build.gradle.kts) before store submission. The default release build uses debug signing for local testing only.
+
+## Project structure
+
+```
+lib/
+├── main.dart                 # App entry, service init
+├── routes/                   # Named routes + auth guards
+├── services/                 # Supabase, notifications, theme, i18n
+├── presentation/             # Screens (customer, provider, admin)
+├── theme/
+└── widgets/
+supabase/
+├── migrations/               # Postgres schema
+└── functions/                # Stripe payment Edge Functions
+assets/lang/                  # i18n (en, es, fr, pt, de, ar)
+```
+
+## Roles
+
+| Role | Home screen |
+|------|-------------|
+| Customer | Service request |
+| Provider | Job requests |
+| Admin | Admin dashboard |
+
+Route guards enforce role access; unauthenticated users are redirected to login.
+
+## VS Code / Cursor launch
+
+Use [`.vscode/launch.json`](.vscode/launch.json) or add to your config:
+
+```json
+"args": ["--dart-define-from-file", "env.json"]
+```
+
+## CI
+
+GitHub Actions runs `flutter analyze` and `flutter test` on push/PR (see [`.github/workflows/flutter.yml`](.github/workflows/flutter.yml)).

@@ -22,10 +22,7 @@ dependencies:
   
   # Feature dependencies - safe to modify
   cached_network_image: ^3.3.1
-  connectivity_plus: ^6.1.4
-  dio: ^5.4.0
   fluttertoast: ^8.2.4
-  fl_chart: ^0.65.0
   universal_html: ^2.2.4
   flutter_stripe: ^12.6.0
   flutter_stripe_web: ^7.6.0
@@ -42,13 +39,16 @@ dev_dependencies:
 flutter:
   uses-material-design: true # CRITICAL: Required for Material icon font - DO NOT REMOVE
   assets:
+    - env.json
     - assets/
     - assets/images/
     - assets/lang/
-  # CRITICAL ASSET MANAGEMENT RULES:
-  # - DO NOT ADD NEW ASSET DIRECTORIES (assets/svg/, assets/icons/, etc.)
-  # - ONLY USE EXISTING AND ITEMS AVAILABLE IN THE DIRECTORIES LISTED ABOVE (assets/, assets/images/, assets/lang/)
-  
-  # CRITICAL FONTS RULE: 
-  # - THIS PROJECT USES GOOGLE FONTS INSTEAD OF LOCAL FONTS
-  # - DO NOT ADD ANY LOCAL FONTS SECTION OR FONT FILES
+    - assets/fonts/Manrope-Regular.ttf
+    - assets/fonts/Manrope-Medium.ttf
+    - assets/fonts/Manrope-SemiBold.ttf
+    - assets/fonts/Manrope-Bold.ttf
+    - assets/fonts/Manrope-ExtraBold.ttf
+  fonts:
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/Manrope-Variable.ttf

@@ -22,7 +22,18 @@ Deno.serve(async (req) => {
     );
 
     const body = await req.json();
-    const { bookingId, customerId, providerId, amount, currency = 'usd', customerEmail, customerName } = body;
+    const {
+      bookingId,
+      jobRequestId,
+      customerId,
+      providerId,
+      amount,
+      currency = 'usd',
+      customerEmail,
+      customerName,
+    } = body;
+
+    const resolvedJobRequestId = jobRequestId ?? bookingId ?? null;
 
     if (!amount || amount <= 0) {
       return new Response(JSON.stringify({ error: 'Invalid amount' }), {
@@ -31,19 +42,24 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Fetch commission settings
     const { data: settings } = await supabase
       .from('app_settings')
       .select('setting_key, setting_value')
       .in('setting_key', ['commission_enabled', 'commission_percent']);
 
-    const commissionEnabled = settings?.find((s: any) => s.setting_key === 'commission_enabled')?.setting_value === 'true';
-    const commissionPercent = parseFloat(settings?.find((s: any) => s.setting_key === 'commission_percent')?.setting_value ?? '15');
+    const commissionEnabled =
+      settings?.find((s: { setting_key: string }) => s.setting_key === 'commission_enabled')
+        ?.setting_value === 'true';
+    const commissionPercent = parseFloat(
+      settings?.find((s: { setting_key: string }) => s.setting_key === 'commission_percent')
+        ?.setting_value ?? '15'
+    );
 
-    const commissionAmount = commissionEnabled ? Math.round(amount * (commissionPercent / 100) * 100) / 100 : 0;
+    const commissionAmount = commissionEnabled
+      ? Math.round(amount * (commissionPercent / 100) * 100) / 100
+      : 0;
     const providerPayout = amount - commissionAmount;
 
-    // Create or retrieve Stripe customer
     let stripeCustomerId: string | undefined;
     if (customerId) {
       const { data: profile } = await supabase
@@ -53,7 +69,6 @@ Deno.serve(async (req) => {
         .maybeSingle();
 
       if (profile) {
-        // Check if customer already has a Stripe customer ID stored
         const existingCustomers = await stripe.customers.list({
           email: profile.email,
           limit: 1,
@@ -72,14 +87,14 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Create payment intent
     const paymentIntentParams: Stripe.PaymentIntentCreateParams = {
-      amount: Math.round(amount * 100), // convert to cents
+      amount: Math.round(amount * 100),
       currency,
       customer: stripeCustomerId,
-      description: `RoadRescue service payment - Booking ${bookingId ?? 'N/A'}`,
+      description: `RoadRescue service payment - Job ${resolvedJobRequestId ?? 'N/A'}`,
       metadata: {
-        booking_id: bookingId ?? '',
+        job_request_id: resolvedJobRequestId ?? '',
+        booking_id: resolvedJobRequestId ?? '',
         customer_id: customerId ?? '',
         provider_id: providerId ?? '',
         commission_amount: commissionAmount.toString(),
@@ -90,11 +105,10 @@ Deno.serve(async (req) => {
 
     const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams);
 
-    // Save payment record to database
     const { data: paymentRecord, error: paymentError } = await supabase
       .from('payments')
       .insert({
-        booking_id: bookingId ?? null,
+        job_request_id: resolvedJobRequestId,
         customer_id: customerId,
         provider_id: providerId ?? null,
         stripe_payment_intent_id: paymentIntent.id,

@@ -297,9 +297,13 @@ class _TabContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final maxWidth = MediaQuery.sizeOf(context).width;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
-      child: child,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth - 32),
+        child: child,
+      ),
     );
   }
 }

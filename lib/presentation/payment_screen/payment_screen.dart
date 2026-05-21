@@ -148,9 +148,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
         serviceType,
       );
 
-      // Also notify customer
+      // Notify customer that payment was confirmed
       final amount = (_args['amount'] as num?)?.toDouble() ?? 0.0;
-      await NotificationService.instance.notifyJobCompleted(amount);
+      await NotificationService.instance.notifyPaymentConfirmed(amount);
 
       if (mounted) {
         final showPostPayment =

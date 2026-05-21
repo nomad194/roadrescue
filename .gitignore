@@ -11,7 +11,12 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
-pubspec.lock
+
+# Local secrets (copy from env.example.json)
+env.json
+
+# Supabase CLI cache
+supabase/.temp/
 
 # IntelliJ related
 *.iml

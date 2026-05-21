@@ -226,27 +226,33 @@ class _AdminAppConfigWidgetState extends State<AdminAppConfigWidget>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(l.t('app_config_title'), style: GoogleFonts.manrope(fontSize: 18, fontWeight: FontWeight.w700)),
-                Text(l.t('manage_settings'), style: GoogleFonts.manrope(fontSize: 13, color: AppTheme.onSurfaceVariant)),
-              ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(l.t('app_config_title'), style: GoogleFonts.manrope(fontSize: 18, fontWeight: FontWeight.w700)),
+                  Text(l.t('manage_settings'), style: GoogleFonts.manrope(fontSize: 13, color: AppTheme.onSurfaceVariant)),
+                ],
+              ),
             ),
-            ElevatedButton.icon(
-              onPressed: _isSaving ? null : _saveConfig,
-              icon: _isSaving 
-                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.save_outlined, size: 18),
-              label: Text(l.t('save_all')),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).primaryColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                minimumSize: const Size(100, 44),
+            const SizedBox(width: 12),
+            Flexible(
+              fit: FlexFit.loose,
+              child: ElevatedButton.icon(
+                onPressed: _isSaving ? null : _saveConfig,
+                icon: _isSaving
+                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.save_outlined, size: 18),
+                label: Text(l.t('save_all')),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Theme.of(context).primaryColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  minimumSize: const Size(100, 44),
+                ),
               ),
             ),
           ],
@@ -402,17 +408,26 @@ class _AdminAppConfigWidgetState extends State<AdminAppConfigWidget>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text('FAQs', style: GoogleFonts.manrope(fontSize: 16, fontWeight: FontWeight.bold)),
-            ElevatedButton.icon(
-              onPressed: () => _showFaqDialog(),
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('Add FAQ'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).primaryColor,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            Expanded(
+              child: Text(
+                'FAQs',
+                style: GoogleFonts.manrope(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Flexible(
+              fit: FlexFit.loose,
+              child: ElevatedButton.icon(
+                onPressed: () => _showFaqDialog(),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add FAQ'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Theme.of(context).primaryColor,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
               ),
             ),
           ],

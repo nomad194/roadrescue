@@ -10,6 +10,7 @@ import '../presentation/payment_screen/payment_screen.dart';
 import '../presentation/post_payment_screen/post_payment_screen.dart';
 import '../presentation/service_history_screen/service_history_screen.dart';
 import '../presentation/faq_tos_screen/faq_tos_screen.dart';
+import 'route_guard.dart';
 
 class AppRoutes {
   static const String initial = '/';
@@ -24,7 +25,7 @@ class AppRoutes {
   static const String serviceHistoryScreen = '/service-history-screen';
   static const String faqTosScreen = '/faq-tos-screen';
 
-  static Map<String, WidgetBuilder> routes = {
+  static final Map<String, WidgetBuilder> _builders = {
     initial: (context) => const SignUpLoginScreen(),
     signUpLoginScreen: (context) => const SignUpLoginScreen(),
     serviceRequestScreen: (context) => const ServiceRequestScreen(),
@@ -37,4 +38,27 @@ class AppRoutes {
     serviceHistoryScreen: (context) => const ServiceHistoryScreen(),
     faqTosScreen: (context) => const FaqTosScreen(),
   };
+
+  static Route<dynamic>? onGenerateRoute(RouteSettings settings) {
+    final name = settings.name ?? initial;
+    final builder = _builders[name];
+    if (builder == null) {
+      return MaterialPageRoute(
+        builder: (context) => const SignUpLoginScreen(),
+        settings: settings,
+      );
+    }
+
+    return MaterialPageRoute(
+      settings: settings,
+      builder: (context) => RouteGuard(
+        routeName: name,
+        child: builder(context),
+      ),
+    );
+  }
+
+  /// Legacy map for compatibility; prefer [onGenerateRoute].
+  @Deprecated('Use onGenerateRoute with RouteGuard instead')
+  static Map<String, WidgetBuilder> get routes => _builders;
 }
