@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../config/app_constants.dart';
 import '../../../theme/app_theme.dart';
 import '../../../services/localization_service.dart';
+import '../../../services/supabase_service.dart';
 
 class AdminGeoZonesWidget extends StatefulWidget {
   const AdminGeoZonesWidget({super.key});
@@ -12,101 +14,70 @@ class AdminGeoZonesWidget extends StatefulWidget {
 }
 
 class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
-  String _distanceUnit = 'mi';
-  final List<Map<String, dynamic>> _zones = [
-    {
-      'id': 1,
-      'name': 'Downtown Metro',
-      'timezone': 'America/New_York',
-      'radius': '15',
-      'active': true,
-      'providers': 32,
-    },
-    {
-      'id': 2,
-      'name': 'West Side',
-      'timezone': 'America/Chicago',
-      'radius': '20',
-      'active': true,
-      'providers': 18,
-    },
-    {
-      'id': 3,
-      'name': 'North Suburbs',
-      'timezone': 'America/Los_Angeles',
-      'radius': '25',
-      'active': false,
-      'providers': 11,
-    },
-    {
-      'id': 4,
-      'name': 'Airport Zone',
-      'timezone': 'America/Denver',
-      'radius': '10',
-      'active': true,
-      'providers': 8,
-    },
-  ];
+  List<Map<String, dynamic>> _states = [];
+  List<Map<String, dynamic>> _cities = [];
+  List<Map<String, dynamic>> _geoZones = [];
+  bool _isLoading = true;
+  bool _isSaving = false;
+  String? _selectedStateId;
+  String? _selectedCityId;
 
   @override
   void initState() {
     super.initState();
-    _loadUnit();
+    _loadData();
   }
 
-  Future<void> _loadUnit() async {
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
     try {
-      final res = await Supabase.instance.client
-          .from('app_settings')
-          .select('setting_value')
-          .eq('setting_key', 'distance_unit')
-          .maybeSingle();
-      if (res != null && mounted) {
-        setState(() => _distanceUnit = res['setting_value'] ?? 'mi');
+      final states = await SupabaseService.instance.getStates();
+      final cities = await SupabaseService.instance.getAllCities();
+      final zones = await SupabaseService.instance.getGeoZones();
+      
+      if (mounted) {
+        setState(() {
+          _states = states;
+          _cities = cities;
+          _geoZones = zones;
+          _isLoading = false;
+        });
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Error loading geo data: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading data: $e'),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+      }
+    }
   }
 
-  final List<String> _timezones = [
-    'America/New_York',
-    'America/Chicago',
-    'America/Denver',
-    'America/Los_Angeles',
-    'America/Phoenix',
-    'America/Anchorage',
-    'Pacific/Honolulu',
-    'Europe/London',
-    'Europe/Paris',
-    'Asia/Dubai',
-    'Asia/Kolkata',
-    'Asia/Tokyo',
-    'Australia/Sydney',
-  ];
-
-  void _showAddEditDialog({Map<String, dynamic>? zone}) {
+  Future<void> _createGeoZone() async {
     final l = LocalizationService.instance;
-    final nameController = TextEditingController(text: zone?['name'] ?? '');
-    final radiusController = TextEditingController(text: zone?['radius'] ?? '');
-    String selectedTz = zone?['timezone'] ?? _timezones.first;
-    bool isActive = zone?['active'] ?? true;
-
-    showDialog(
+    final nameController = TextEditingController();
+    final timezoneController = TextEditingController(text: AppConstants.defaultTimezone);
+    
+    String? selectedStateId;
+    String? selectedCityId;
+    
+    await showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          backgroundColor: AppTheme.surface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
           title: Text(
-            zone == null ? 'Add Geo Zone' : 'Edit Geo Zone',
+            'Create Geo Zone',
             style: GoogleFonts.manrope(
-              fontWeight: FontWeight.w700,
               fontSize: 18,
-              color: AppTheme.onSurface,
+              fontWeight: FontWeight.w700,
             ),
           ),
-          content: SingleChildScrollView(
+          content: SizedBox(
+            width: 400,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -114,120 +85,61 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
                   controller: nameController,
                   decoration: InputDecoration(
                     labelText: 'Zone Name',
-                    hintText: 'e.g. Downtown Metro',
-                    filled: true,
-                    fillColor: AppTheme.surfaceVariant,
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: AppTheme.outline),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: AppTheme.outline),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(
-                        color: AppTheme.primary,
-                        width: 2,
-                      ),
-                    ),
-                  ),
-                  style: GoogleFonts.manrope(
-                    fontSize: 14,
-                    color: AppTheme.onSurface,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: radiusController,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    labelText: 'Radius ($_distanceUnit)',
-                    hintText: 'e.g. 15',
-                    suffixText: _distanceUnit,
-                    filled: true,
-                    fillColor: AppTheme.surfaceVariant,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: AppTheme.outline),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: AppTheme.outline),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(
-                        color: AppTheme.primary,
-                        width: 2,
-                      ),
-                    ),
-                  ),
-                  style: GoogleFonts.manrope(
-                    fontSize: 14,
-                    color: AppTheme.onSurface,
                   ),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  initialValue: selectedTz,
+                  value: selectedStateId,
                   decoration: InputDecoration(
-                    labelText: 'Timezone',
-                    filled: true,
-                    fillColor: AppTheme.surfaceVariant,
+                    labelText: 'State',
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: AppTheme.outline),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: AppTheme.outline),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(
-                        color: AppTheme.primary,
-                        width: 2,
-                      ),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 14,
+                      borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  dropdownColor: AppTheme.surface,
-                  style: GoogleFonts.manrope(
-                    fontSize: 13,
-                    color: AppTheme.onSurface,
-                  ),
-                  items: _timezones
-                      .map(
-                        (tz) => DropdownMenuItem(
-                          value: tz,
-                          child: Text(tz, overflow: TextOverflow.ellipsis),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (v) => setDialogState(() => selectedTz = v!),
+                  items: _states.map((s) => DropdownMenuItem(
+                    value: s['id'] as String,
+                    child: Text(s['name'] as String),
+                  )).toList(),
+                  onChanged: (val) {
+                    setDialogState(() {
+                      selectedStateId = val;
+                      selectedCityId = null;
+                    });
+                  },
                 ),
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Text(
-                      l.t('active'),
-                      style: GoogleFonts.manrope(
-                        fontSize: 14,
-                        color: AppTheme.onSurface,
+                if (selectedStateId != null)
+                  DropdownButtonFormField<String>(
+                    value: selectedCityId,
+                    decoration: InputDecoration(
+                      labelText: 'City',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    const Spacer(),
-                    Switch(
-                      value: isActive,
-                      onChanged: (v) => setDialogState(() => isActive = v),
-                      activeThumbColor: AppTheme.primary,
+                    items: _cities
+                      .where((c) => c['state_id'] == selectedStateId)
+                      .map((c) => DropdownMenuItem(
+                        value: c['id'] as String,
+                        child: Text(c['name'] as String),
+                      )).toList(),
+                    onChanged: (val) {
+                      setDialogState(() => selectedCityId = val);
+                    },
+                  ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: timezoneController,
+                  decoration: InputDecoration(
+                    labelText: 'Timezone',
+                    hintText: 'America/Cancun',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                  ],
+                  ),
                 ),
               ],
             ),
@@ -235,55 +147,58 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: Text(
-                l.t('cancel'),
-                style: GoogleFonts.manrope(color: AppTheme.onSurfaceVariant),
-              ),
+              child: Text(l.t('cancel')),
             ),
             ElevatedButton(
-              onPressed: () {
-                if (nameController.text.trim().isEmpty) return;
-                setState(() {
-                  if (zone == null) {
-                    _zones.add({
-                      'id': _zones.length + 1,
-                      'name': nameController.text.trim(),
-                      'timezone': selectedTz,
-                      'radius': radiusController.text.trim().isEmpty
-                          ? '10'
-                          : radiusController.text.trim(),
-                      'active': isActive,
-                      'providers': 0,
-                    });
-                  } else {
-                    final idx = _zones.indexWhere((z) => z['id'] == zone['id']);
-                    if (idx != -1) {
-                      _zones[idx] = {
-                        ...zone,
-                        'name': nameController.text.trim(),
-                        'timezone': selectedTz,
-                        'radius': radiusController.text.trim().isEmpty
-                            ? zone['radius']
-                            : radiusController.text.trim(),
-                        'active': isActive,
-                      };
-                    }
-                  }
-                });
+              onPressed: () async {
+                if (nameController.text.isEmpty || 
+                    selectedStateId == null || 
+                    selectedCityId == null) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(
+                      content: Text('Please fill all fields'),
+                      backgroundColor: AppTheme.error,
+                    ),
+                  );
+                  return;
+                }
+                
                 Navigator.pop(ctx);
+                setState(() => _isSaving = true);
+                
+                try {
+                  await SupabaseService.instance.createGeoZone({
+                    'name': nameController.text,
+                    'state_id': selectedStateId,
+                    'city_id': selectedCityId,
+                    'timezone': timezoneController.text,
+                    'is_active': true,
+                  });
+                  
+                  await _loadData();
+                  
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Geo zone created successfully'),
+                        backgroundColor: AppTheme.success,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error creating zone: $e'),
+                        backgroundColor: AppTheme.error,
+                      ),
+                    );
+                  }
+                } finally {
+                  if (mounted) setState(() => _isSaving = false);
+                }
               },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primary,
-                foregroundColor: Colors.white,
-                minimumSize: const Size(80, 40),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              child: Text(
-                l.t('save'),
-                style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
-              ),
+              child: Text(l.t('create')),
             ),
           ],
         ),
@@ -291,12 +206,90 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
     );
   }
 
+  Future<void> _toggleGeoZone(String id, bool isActive) async {
+    setState(() => _isSaving = true);
+    try {
+      await SupabaseService.instance.updateGeoZone(id, {
+        'is_active': !isActive,
+      });
+      await _loadData();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error updating zone: $e'),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _deleteGeoZone(String id) async {
+    final l = LocalizationService.instance;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l.t('confirm_delete')),
+        content: const Text('Are you sure you want to delete this geo zone?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(l.t('cancel')),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.error,
+            ),
+            child: Text(l.t('delete')),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed != true) return;
+    
+    setState(() => _isSaving = true);
+    try {
+      await SupabaseService.instance.deleteGeoZone(id);
+      await _loadData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Geo zone deleted'),
+            backgroundColor: AppTheme.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error deleting zone: $e'),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = LocalizationService.instance;
+    
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Header
         Row(
           children: [
             Expanded(
@@ -312,7 +305,7 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
                     ),
                   ),
                   Text(
-                    '${_zones.length} zones with timezone assignments',
+                    'Manage service areas by state and city',
                     style: GoogleFonts.manrope(
                       fontSize: 13,
                       color: AppTheme.onSurfaceVariant,
@@ -321,164 +314,226 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
                 ],
               ),
             ),
-            ElevatedButton.icon(
-              onPressed: () => _showAddEditDialog(),
-              icon: const Icon(Icons.add, size: 18),
-              label: Text(
-                '${l.t('add_plan').split(' ')[0]} Zone', // Hacky
-                style: GoogleFonts.manrope(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primary,
-                foregroundColor: Colors.white,
-                minimumSize: const Size(110, 40),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+            Flexible(
+              child: ElevatedButton.icon(
+                onPressed: _isSaving ? null : _createGeoZone,
+                icon: _isSaving 
+                  ? const SizedBox(
+                      width: 16, 
+                      height: 16, 
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.add, size: 18),
+                label: const Text('Add Zone'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 16),
-        ListView.separated(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: _zones.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
-          itemBuilder: (context, index) {
-            final zone = _zones[index];
-            return Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppTheme.surface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppTheme.outlineVariant),
+        const SizedBox(height: 20),
+        
+        // States Summary
+        if (_states.isNotEmpty) ...[
+          Text(
+            'Available States',
+            style: GoogleFonts.manrope(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _states.map((s) => Chip(
+              label: Text('${s['name']} (${s['code']})'),
+              backgroundColor: AppTheme.primaryContainer,
+              labelStyle: GoogleFonts.manrope(
+                fontSize: 12,
+                color: AppTheme.primary,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: zone['active']
-                              ? AppTheme.primaryContainer
-                              : AppTheme.surfaceVariant,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(
-                          Icons.map_outlined,
-                          size: 20,
-                          color: zone['active']
-                              ? AppTheme.primary
-                              : AppTheme.muted,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              zone['name'],
-                              style: GoogleFonts.manrope(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.onSurface,
-                              ),
-                            ),
-                            Text(
-                              '${zone['providers']} providers · ${zone['radius']} $_distanceUnit',
-                              style: GoogleFonts.manrope(
-                                fontSize: 12,
-                                color: AppTheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: zone['active']
-                              ? AppTheme.successContainer
-                              : AppTheme.surfaceVariant,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          zone['active'] ? l.t('active') : 'Inactive',
-                          style: GoogleFonts.manrope(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: zone['active']
-                                ? AppTheme.success
-                                : AppTheme.muted,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        onPressed: () => _showAddEditDialog(zone: zone),
-                        icon: const Icon(
-                          Icons.edit_outlined,
-                          size: 18,
-                          color: AppTheme.primary,
-                        ),
-                        style: IconButton.styleFrom(
-                          backgroundColor: AppTheme.primaryContainer,
-                          minimumSize: const Size(34, 34),
-                          padding: EdgeInsets.zero,
-                        ),
-                      ),
-                    ],
+            )).toList(),
+          ),
+          const SizedBox(height: 20),
+        ],
+        
+        // Cities Summary
+        if (_cities.isNotEmpty) ...[
+          Text(
+            'Cities (${_cities.length} total)',
+            style: GoogleFonts.manrope(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppTheme.outlineVariant),
+            ),
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                ..._cities.take(20).map((c) => Chip(
+                  label: Text(c['name'] as String),
+                  backgroundColor: AppTheme.surfaceVariant,
+                  labelStyle: GoogleFonts.manrope(
+                    fontSize: 11,
+                    color: AppTheme.onSurface,
                   ),
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
+                  visualDensity: VisualDensity.compact,
+                )),
+                if (_cities.length > 20)
+                  Chip(
+                    label: Text('+${_cities.length - 20} more'),
+                    backgroundColor: AppTheme.muted.withAlpha(50),
+                    labelStyle: GoogleFonts.manrope(
+                      fontSize: 11,
+                      color: AppTheme.muted,
                     ),
-                    decoration: BoxDecoration(
-                      color: AppTheme.surfaceVariant,
-                      borderRadius: BorderRadius.circular(8),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+        ],
+        
+        // Geo Zones List
+        Text(
+          'Geo Zones',
+          style: GoogleFonts.manrope(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.onSurface,
+          ),
+        ),
+        const SizedBox(height: 12),
+        
+        if (_geoZones.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: AppTheme.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppTheme.outlineVariant),
+            ),
+            child: Center(
+              child: Column(
+                children: [
+                  Icon(Icons.map_outlined, size: 48, color: AppTheme.muted),
+                  const SizedBox(height: 12),
+                  Text(
+                    'No geo zones created yet',
+                    style: GoogleFonts.manrope(
+                      fontSize: 14,
+                      color: AppTheme.muted,
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.access_time,
-                          size: 14,
-                          color: AppTheme.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          zone['timezone'],
-                          style: GoogleFonts.manrope(
-                            fontSize: 12,
-                            color: AppTheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Click "Add Zone" to create your first geo zone',
+                    style: GoogleFonts.manrope(
+                      fontSize: 12,
+                      color: AppTheme.onSurfaceVariant,
                     ),
                   ),
                 ],
               ),
-            );
-          },
-        ),
+            ),
+          )
+        else
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _geoZones.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (ctx, index) {
+              final zone = _geoZones[index];
+              final stateName = zone['states']?['name'] ?? 'Unknown';
+              final cityName = zone['cities']?['name'] ?? 'Unknown';
+              final isActive = zone['is_active'] ?? true;
+              
+              return Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppTheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: isActive ? AppTheme.outlineVariant : AppTheme.muted.withAlpha(50)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: isActive ? AppTheme.primaryContainer : AppTheme.muted.withAlpha(50),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.location_city,
+                        color: isActive ? AppTheme.primary : AppTheme.muted,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            zone['name'] ?? 'Unnamed Zone',
+                            style: GoogleFonts.manrope(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: isActive ? AppTheme.onSurface : AppTheme.muted,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '$cityName, $stateName',
+                            style: GoogleFonts.manrope(
+                              fontSize: 13,
+                              color: AppTheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Timezone: ${zone['timezone'] ?? 'N/A'}',
+                            style: GoogleFonts.manrope(
+                              fontSize: 11,
+                              color: AppTheme.muted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: isActive,
+                      onChanged: _isSaving ? null : (v) => _toggleGeoZone(zone['id'], isActive),
+                      activeColor: AppTheme.primary,
+                    ),
+                    IconButton(
+                      onPressed: _isSaving ? null : () => _deleteGeoZone(zone['id']),
+                      icon: const Icon(Icons.delete_outline),
+                      color: AppTheme.error,
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
       ],
     );
   }

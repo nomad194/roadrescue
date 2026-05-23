@@ -8,7 +8,7 @@ extension ImageTypeExtension on String {
       return ImageType.network;
     } else if (endsWith('.svg')) {
       return ImageType.svg;
-    } else if (startsWith('file: //')) {
+    } else if (startsWith('file://')) {
       return ImageType.file;
     } else {
       return ImageType.png;
@@ -106,7 +106,7 @@ class CustomImageWidget extends StatelessWidget {
   }
 
   Widget _buildImageView() {
-    if (imageUrl != null && imageUrl!.isNotEmpty) {
+    if (imageUrl != null && imageUrl!.isNotEmpty && imageUrl!.trim() != 'file://') {
       switch (imageUrl!.imageType) {
         case ImageType.svg:
           return SizedBox(

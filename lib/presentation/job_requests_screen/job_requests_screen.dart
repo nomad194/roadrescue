@@ -3,18 +3,22 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:convert';
 
+import '../../config/app_constants.dart';
 import '../../routes/app_routes.dart';
 import '../../services/supabase_service.dart';
 import '../../services/localization_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/empty_state_widget.dart';
 import '../../widgets/loading_skeleton_widget.dart';
+import '../../widgets/service_area_map_widget.dart';
 import './widgets/job_request_card_widget.dart';
 import './widgets/provider_stats_header_widget.dart';
 import './widgets/quote_bottom_sheet_widget.dart';
 
 class JobRequestsScreen extends StatefulWidget {
-  const JobRequestsScreen({super.key});
+  final int? initialTabIndex;
+  
+  const JobRequestsScreen({super.key, this.initialTabIndex});
 
   @override
   State<JobRequestsScreen> createState() => _JobRequestsScreenState();
@@ -24,7 +28,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     with TickerProviderStateMixin {
   bool _isLoading = true;
   String _selectedStatusFilter = 'new';
-  int _currentTabIndex = 0;
+  late int _currentTabIndex;
 
   late AnimationController _listController;
   RealtimeChannel? _jobSubscription;
@@ -48,8 +52,15 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
 
   // Range State
   String _distanceUnit = 'mi';
-  double _serviceRange = 25.0;
+  double _serviceRange = AppConstants.defaultServiceRangeMiles;
   bool _isSavingRange = false;
+  double? _providerLat;
+  double? _providerLng;
+
+  // Profile
+  String _providerName = '';
+  String _locationLabel = '';
+  bool _showRoleSwitcher = true;
 
   List<_JobRequest> get _filteredJobs {
     return _jobs.where((job) {
@@ -69,6 +80,8 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   @override
   void initState() {
     super.initState();
+    _currentTabIndex = widget.initialTabIndex ?? 0;
+    _isSavingServices = false; // Reset in case it was stuck
     _listController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 400),
@@ -85,6 +98,8 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
       _loadSubscription(),
       _loadPlans(),
       _loadProviderRange(),
+      _loadProviderProfile(),
+      _loadRoleSwitcherSetting(),
     ]);
 
     // 2. ONLY then load jobs using the now-populated enabled categories
@@ -101,6 +116,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   // ─── DATA LOADING ──────────────────────────────────────────────────────────
 
   Future<void> _loadJobs() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       // Filter jobs by enabled categories
@@ -126,6 +142,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   }
 
   Future<void> _loadCategories() async {
+    if (!mounted) return;
     setState(() => _isLoadingCategories = true);
     final cats = await SupabaseService.instance.getServiceCategories();
     if (mounted) {
@@ -152,12 +169,9 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         if (sub != null) {
           _activeSubscription = sub;
         } else {
+          // Use free plan defaults from constants
           _activeSubscription = {
-            'plan': {
-              'max_categories': 1,
-              'can_set_distance_surcharges': false,
-              'can_use_after_hours': false,
-            },
+            'plan': AppConstants.freePlanLimits,
           };
         }
       });
@@ -168,12 +182,20 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     final userId = SupabaseService.instance.currentUser?.id;
     if (userId == null) return;
 
+    debugPrint('Loading provider services for user: $userId');
     final configs = await SupabaseService.instance.getProviderServices(userId);
+    debugPrint('Loaded ${configs.length} provider service configs: $configs');
+    
     if (mounted) {
       setState(() {
+        // Clear and reload everything from database to ensure fresh data
+        _enabledServices.clear();
+        _pricingMap.clear();
+        
         for (final config in configs) {
           final id = config['category_id'].toString();
           _enabledServices.add(id);
+          debugPrint('Enabled service: $id');
 
           final distanceRules = (config['distance_rules'] as List?)
                   ?.map(
@@ -205,12 +227,15 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
             timeSurcharges: timeSurcharges,
             supportedVehicleSizes: List<String>.from(config['supported_vehicle_sizes'] ?? []),
           );
+          debugPrint('Loaded pricing for service $id: ${_pricingMap[id]?.basePrice}');
         }
+        debugPrint('Total enabled services: ${_enabledServices.length}');
       });
     }
   }
 
   Future<void> _loadPlans() async {
+    if (!mounted) return;
     setState(() => _isLoadingPlans = true);
     try {
       final response = await Supabase.instance.client
@@ -262,16 +287,67 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     try {
       final res = await Supabase.instance.client
           .from('user_profiles')
-          .select('service_range_miles')
+          .select('service_range_miles, address_lat, address_lng')
           .eq('id', userId)
           .maybeSingle();
       if (res != null && mounted) {
-        setState(
-          () => _serviceRange =
-              (res['service_range_miles'] as num?)?.toDouble() ?? 25.0,
-        );
+        setState(() {
+          _serviceRange =
+              (res['service_range_miles'] as num?)?.toDouble() ?? AppConstants.defaultServiceRangeMiles;
+          _providerLat = (res['address_lat'] as num?)?.toDouble();
+          _providerLng = (res['address_lng'] as num?)?.toDouble();
+        });
       }
     } catch (_) {}
+  }
+
+  Future<void> _loadRoleSwitcherSetting() async {
+    final val = await SupabaseService.instance.getAppSetting('show_role_switcher');
+    if (mounted) setState(() => _showRoleSwitcher = val != 'false');
+  }
+
+  Future<void> _loadProviderProfile() async {
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) return;
+    try {
+      final res = await Supabase.instance.client
+          .from('user_profiles')
+          .select('full_name, address, selected_city_id, selected_state_id')
+          .eq('id', userId)
+          .maybeSingle();
+      if (res != null && mounted) {
+        final cityId = res['selected_city_id'] as String?;
+        final stateId = res['selected_state_id'] as String?;
+        String location = '';
+        if (cityId != null) {
+          final cityRes = await Supabase.instance.client
+              .from('cities')
+              .select('name')
+              .eq('id', cityId)
+              .maybeSingle();
+          final cityName = cityRes?['name'] as String? ?? '';
+          if (stateId != null) {
+            final stateRes = await Supabase.instance.client
+                .from('states')
+                .select('code')
+                .eq('id', stateId)
+                .maybeSingle();
+            final stateCode = stateRes?['code'] as String? ?? '';
+            location = stateCode.isNotEmpty ? '$cityName, $stateCode' : cityName;
+          } else {
+            location = cityName;
+          }
+        }
+        if (mounted) {
+          setState(() {
+            _providerName = res['full_name'] as String? ?? '';
+            _locationLabel = location;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading provider profile: $e');
+    }
   }
 
   Future<void> _saveServiceRange(double value) async {
@@ -305,6 +381,41 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
       }
     } finally {
       if (mounted) setState(() => _isSavingRange = false);
+    }
+  }
+
+  Future<void> _updateProviderLocation(double lat, double lng) async {
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) return;
+
+    try {
+      await SupabaseService.instance.updateProviderGeoZone(
+        providerId: userId,
+        addressLat: lat,
+        addressLng: lng,
+      );
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Location updated successfully'),
+            backgroundColor: AppTheme.success,
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error updating location: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to update location'),
+            backgroundColor: AppTheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
@@ -511,11 +622,15 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         _enabledServices.remove(id);
       } else {
         _enabledServices.add(id);
-        if (_pricingMap[id]!.basePrice == 0) {
+        // Initialize pricing if not exists
+        if (!_pricingMap.containsKey(id) || _pricingMap[id] == null) {
           _pricingMap[id] = const _ServicePricing(basePrice: 0);
         }
       }
     });
+    
+    // Auto-save to database after toggling
+    _saveServices();
   }
 
   void _showLimitReached(String type, int limit) {
@@ -568,37 +683,56 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         pricing: pricing,
         canSetDistance: canSetDistance,
         canUseAfterHours: canUseAfterHours,
-        onSave: (updated) {
-          setState(() => _pricingMap[id] = updated);
+        onSave: (updated) async {
+          debugPrint('=== onSave callback called ===');
+          debugPrint('Updated pricing: ${updated.basePrice}');
+          
+          // Update local map
+          _pricingMap[id] = updated;
+          
+          // Pop the bottom sheet immediately
           Navigator.pop(ctx);
-          final String displayName = l.translateContent(
-            service['name_translations'] as Map<String, dynamic>? ?? {},
-            fallbackText: service['name'] as String? ?? '',
-          );
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('${l.t('pricing_saved_for')} $displayName'),
-              backgroundColor: AppTheme.success,
-              behavior: SnackBarBehavior.floating,
-              margin: const EdgeInsets.all(16),
-            ),
-          );
+          
+          // Save ALL enabled services to database (not just this one)
+          // to avoid deleting other services
+          _saveServices();
         },
       ),
     );
   }
 
   void _saveServices() async {
+    debugPrint('=== _saveServices called ===');
     final userId = SupabaseService.instance.currentUser?.id;
-    if (userId == null) return;
+    debugPrint('User ID: $userId');
+    if (userId == null) {
+      debugPrint('ERROR: No user ID, returning early');
+      return;
+    }
 
-    setState(() => _isSavingServices = true);
+    // Note: We don't check mounted here - the database save should happen
+    // even if widget is disposed
+
+    if (mounted) {
+      setState(() => _isSavingServices = true);
+    }
     final l = LocalizationService.instance;
 
     try {
       final List<Map<String, dynamic>> servicesToSave = [];
+      debugPrint('Saving ${_enabledServices.length} enabled services');
+      
+      if (_enabledServices.isEmpty) {
+        debugPrint('WARNING: No enabled services to save');
+      }
+      
       for (final id in _enabledServices) {
-        final pricing = _pricingMap[id]!;
+        final pricing = _pricingMap[id];
+        if (pricing == null) {
+          debugPrint('ERROR: No pricing found for service $id');
+          continue;
+        }
+        debugPrint('Adding service $id to save list');
         servicesToSave.add({
           'category_id': int.tryParse(id),
           'base_price': pricing.basePrice,
@@ -626,10 +760,17 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         });
       }
 
+      debugPrint('Services to save: $servicesToSave');
+      
+      if (servicesToSave.isEmpty) {
+        debugPrint('WARNING: servicesToSave is empty, nothing to save');
+      }
+      
       await SupabaseService.instance.saveProviderServices(
         userId,
         servicesToSave,
       );
+      debugPrint('Services saved successfully');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -641,11 +782,13 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
           ),
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('ERROR in _saveServices: $e');
+      debugPrint('Stack trace: $stackTrace');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to save services'),
+          SnackBar(
+            content: Text('Failed to save services: $e'),
             backgroundColor: AppTheme.error,
           ),
         );
@@ -722,6 +865,12 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     try {
       final planId = plan['id'];
       debugPrint('Attempting subscription for user $userId to plan $planId');
+
+      // 0. Ensure user profile exists first (fixes foreign key constraint)
+      final profileCreated = await SupabaseService.instance.ensureUserProfile(userId);
+      if (!profileCreated) {
+        throw Exception('Failed to create user profile - cannot subscribe');
+      }
 
       // 1. Simple Upsert (minimal fields to avoid validation errors)
       await Supabase.instance.client.from('provider_subscriptions').upsert({
@@ -802,27 +951,25 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
           onPressed: _signOut,
           tooltip: l.t('sign_out'),
         ),
-        title: Flexible(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                l.t('job_requests'),
-                style: GoogleFonts.manrope(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.onSurface,
-                ),
-                overflow: TextOverflow.ellipsis,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              l.t('job_requests'),
+              style: GoogleFonts.manrope(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.onSurface,
               ),
-              Text(
-                l.t('provider_dashboard'),
-                style: GoogleFonts.manrope(fontSize: 10, color: AppTheme.muted),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              l.t('provider_dashboard'),
+              style: GoogleFonts.manrope(fontSize: 10, color: AppTheme.muted),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
         ),
         actions: [
           IconButton(
@@ -839,6 +986,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
                 Navigator.pushNamed(context, AppRoutes.providerProfileScreen),
             visualDensity: VisualDensity.compact,
           ),
+          if (_showRoleSwitcher)
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: InkWell(
@@ -885,6 +1033,8 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
               jobs: _jobs,
               selectedStatus: _selectedStatusFilter,
               onStatusChanged: _onStatusFilterChanged,
+              providerName: _providerName,
+              locationLabel: _locationLabel,
             ),
             _buildTabSelector(l),
             Expanded(child: _buildTabContent(l)),
@@ -914,29 +1064,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
                 ),
               ),
             )
-          : _currentTabIndex == 1
-          ? FloatingActionButton.extended(
-              onPressed: _isSavingServices ? null : _saveServices,
-              backgroundColor: AppTheme.primary,
-              icon: _isSavingServices
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.save_rounded, size: 18),
-              label: Text(
-                l.t('save_all'),
-                style: GoogleFonts.manrope(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            )
-          : null,
+          : null,  // No FAB for Services tab - auto-save handles everything
     );
   }
 
@@ -1224,22 +1352,48 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
             ],
           ),
           const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
+          
+          // Map showing service area
+          if (_providerLat != null && _providerLng != null)
+            ServiceAreaMapWidget(
+              latitude: _providerLat!,
+              longitude: _providerLng!,
+              serviceRange: _serviceRange,
+              distanceUnit: _distanceUnit,
+              onRangeChanged: (v) => setState(() => _serviceRange = v),
+              onRangeChangeEnd: _saveServiceRange,
+              onLocationChanged: (lat, lng) {
+                setState(() {
+                  _providerLat = lat;
+                  _providerLng = lng;
+                });
+                // Save new location to profile
+                _updateProviderLocation(lat, lng);
+              },
+            )
+          else
+            Container(
+              height: 200,
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceVariant,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
+                    Icon(Icons.location_off, size: 48, color: AppTheme.muted),
+                    const SizedBox(height: 12),
                     Text(
-                      '${_serviceRange.toInt()} $_distanceUnit',
+                      'Set your location in Profile',
                       style: GoogleFonts.manrope(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.primary,
+                        fontSize: 14,
+                        color: AppTheme.muted,
                       ),
                     ),
+                    const SizedBox(height: 4),
                     Text(
-                      l.t('from_base_location'),
+                      'Go to Profile > Personal Info > Coordinates',
                       style: GoogleFonts.manrope(
                         fontSize: 12,
                         color: AppTheme.onSurfaceVariant,
@@ -1248,37 +1402,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
                   ],
                 ),
               ),
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.my_location,
-                  size: 22,
-                  color: AppTheme.primary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Slider(
-            value: _serviceRange.clamp(5, 200),
-            min: 5,
-            max: 200,
-            divisions: 39,
-            activeColor: AppTheme.primary,
-            onChanged: (v) => setState(() => _serviceRange = v),
-            onChangeEnd: _saveServiceRange,
-          ),
-          Center(
-            child: Text(
-              'Drag to adjust your operational radius',
-              style: GoogleFonts.manrope(fontSize: 11, color: AppTheme.muted),
             ),
-          ),
         ],
       ),
     );
@@ -1754,19 +1878,13 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
   late List<_TimeSurcharge> _timeSurcharges;
   late List<String> _supportedVehicles;
 
-  // Master list (should ideally come from DB or shared constant)
-  static const List<Map<String, dynamic>> _vehicleSizeOptions = [
-    {'id': 'motorcycle', 'label': 'Motorcycle', 'emoji': '🏍️'},
-    {'id': 'sedan', 'label': 'Sedan / Car', 'emoji': '🚗'},
-    {'id': 'suv', 'label': 'SUV / Crossover', 'emoji': '🚙'},
-    {'id': 'pickup', 'label': 'Pickup Truck', 'emoji': '🛻'},
-    {'id': 'van', 'label': 'Van / Minivan', 'emoji': '🚐'},
-    {'id': 'large_truck', 'label': 'Large Truck', 'emoji': '🚛'},
-  ];
+  // Use shared vehicle size options from AppConstants
+  List<Map<String, dynamic>> get _vehicleSizeOptions => AppConstants.vehicleSizeOptions;
 
   @override
   void initState() {
     super.initState();
+    debugPrint('PricingEditorSheet initState - initial price: ${widget.pricing.basePrice}');
     _basePriceCtrl = TextEditingController(
       text: widget.pricing.basePrice > 0
           ? widget.pricing.basePrice.toStringAsFixed(0)
@@ -1779,6 +1897,7 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
 
   @override
   void dispose() {
+    debugPrint('PricingEditorSheet dispose - final price: ${_basePriceCtrl.text}');
     _basePriceCtrl.dispose();
     super.dispose();
   }
@@ -1833,14 +1952,21 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () => widget.onSave(
-                  _ServicePricing(
-                    basePrice: double.tryParse(_basePriceCtrl.text) ?? 0,
-                    distanceRules: _distanceRules,
-                    timeSurcharges: _timeSurcharges,
-                    supportedVehicleSizes: _supportedVehicles,
-                  ),
-                ),
+                onPressed: () {
+                  debugPrint('=== PRICING EDITOR SAVE CLICKED ===');
+                  debugPrint('Base price: ${_basePriceCtrl.text}');
+                  debugPrint('Distance rules: ${_distanceRules.length}');
+                  debugPrint('Time surcharges: ${_timeSurcharges.length}');
+                  debugPrint('Supported vehicles: ${_supportedVehicles.length}');
+                  widget.onSave(
+                    _ServicePricing(
+                      basePrice: double.tryParse(_basePriceCtrl.text) ?? 0,
+                      distanceRules: _distanceRules,
+                      timeSurcharges: _timeSurcharges,
+                      supportedVehicleSizes: _supportedVehicles,
+                    ),
+                  );
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppTheme.primary,
                   foregroundColor: Colors.white,
@@ -1936,13 +2062,18 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
 
             return InkWell(
               onTap: () {
+                debugPrint('Vehicle tapped: ${opt['id']}');
+                debugPrint('Current price: ${_basePriceCtrl.text}');
                 setState(() {
                   if (isSelected) {
                     _supportedVehicles.remove(opt['id']);
+                    debugPrint('Removed vehicle ${opt['id']}');
                   } else {
                     _supportedVehicles.add(opt['id'] as String);
+                    debugPrint('Added vehicle ${opt['id']}');
                   }
                 });
+                debugPrint('After setState - price: ${_basePriceCtrl.text}');
               },
               borderRadius: BorderRadius.circular(10),
               child: AnimatedContainer(

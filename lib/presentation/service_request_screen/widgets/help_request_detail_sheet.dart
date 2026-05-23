@@ -80,6 +80,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
 
   Future<void> _loadProviderPaymentMethods() async {
     try {
+      // Get provider's accepted methods
       final response = await Supabase.instance.client
           .from('job_requests')
           .select('accepted_payment_methods')
@@ -88,9 +89,18 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
       if (response != null && mounted) {
         final methods =
             (response['accepted_payment_methods'] as String?) ?? 'cash,online';
+        final providerAcceptsCash = methods.contains('cash');
+        final providerAcceptsOnline = methods.contains('online');
+
+        // Check globally enabled payment methods
+        final globalMethods = await SupabaseService.instance.getPaymentMethods();
+        final cashEnabledGlobally = globalMethods.any((m) => m['code'] == 'cash' && m['is_enabled'] == true);
+        final onlineEnabledGlobally = globalMethods.any((m) => m['code'] == 'stripe' && m['is_enabled'] == true);
+
         setState(() {
-          _providerAcceptsCash = methods.contains('cash');
-          _providerAcceptsOnline = methods.contains('online');
+          // Only show if provider accepts AND globally enabled
+          _providerAcceptsCash = providerAcceptsCash && cashEnabledGlobally;
+          _providerAcceptsOnline = providerAcceptsOnline && onlineEnabledGlobally;
         });
       }
     } catch (_) {}
@@ -230,7 +240,6 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: [
           Container(
             margin: const EdgeInsets.only(top: 12, bottom: 4),
@@ -241,7 +250,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          Flexible(
+          Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
               child: Column(

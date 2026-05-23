@@ -1,9 +1,15 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import '../../theme/app_theme.dart';
 import '../../routes/app_routes.dart';
 import '../../widgets/language_selector_widget.dart';
+import '../../widgets/service_area_map_widget.dart';
 import '../../services/localization_service.dart';
+import '../../services/supabase_service.dart';
 
 class ProviderProfileScreen extends StatefulWidget {
   const ProviderProfileScreen({super.key});
@@ -16,37 +22,406 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
   bool _isEditing = false;
   bool _isSaving = false;
   bool _isAvailable = true;
+  bool _isLoadingGeo = true;
+  bool _isUploadingAvatar = false;
 
-  final _nameController = TextEditingController(text: 'Carlos Rivera');
-  final _emailController = TextEditingController(
-    text: 'carlos.rivera@provider.com',
-  );
-  final _phoneController = TextEditingController(text: '+1 (512) 555-0291');
-  final _businessNameController = TextEditingController(
-    text: 'Rivera Roadside Services',
-  );
-  final _businessImageController = TextEditingController(
-    text: 'https://images.pexels.com/photos/3807386/pexels-photo-3807386.jpeg',
-  );
-  final _addressController = TextEditingController(text: 'Austin, TX 78701');
+  final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _businessNameController = TextEditingController();
+  final _businessImageController = TextEditingController();
+  final _addressController = TextEditingController();
+  final _zipController = TextEditingController();
+  final _latController = TextEditingController();
+  final _lngController = TextEditingController();
+
+  // Geo zone data
+  List<Map<String, dynamic>> _states = [];
+  List<Map<String, dynamic>> _cities = [];
+  String? _selectedStateId;
+  String? _selectedCityId;
+  String _distanceUnit = 'mi'; // 'mi' or 'km'
+
+  // Geocoding
+  bool _isGeocoding = false;
+  Timer? _debounceTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+    _loadGeoData();
+    _loadProviderGeoSettings();
+    _loadDistanceUnit();
+  }
+
+  Future<void> _loadDistanceUnit() async {
+    try {
+      final response = await SupabaseService.instance.client
+          .from('app_settings')
+          .select('setting_value')
+          .eq('setting_key', 'distance_unit')
+          .maybeSingle();
+      
+      if (response != null && mounted) {
+        setState(() {
+          _distanceUnit = response['setting_value'] ?? 'mi';
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading distance unit: $e');
+    }
+  }
+
+  Future<void> _loadProfile() async {
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) return;
+
+    try {
+      final profile = await SupabaseService.instance.getUserProfile(userId);
+      if (profile != null && mounted) {
+        debugPrint('Loading full profile - name: ${profile['full_name']}, address: ${profile['address']}');
+        setState(() {
+          _nameController.text = profile['full_name']?.toString() ?? '';
+          _emailController.text = profile['email']?.toString() ?? '';
+          _phoneController.text = profile['phone']?.toString() ?? '';
+          _businessNameController.text = profile['business_name']?.toString() ?? '';
+          _businessImageController.text = profile['avatar_url']?.toString() ?? '';
+          _addressController.text = profile['address']?.toString() ?? '';
+          _zipController.text = profile['zip_code']?.toString() ?? '';
+          _latController.text = profile['address_lat']?.toString() ?? '';
+          _lngController.text = profile['address_lng']?.toString() ?? '';
+          _isAvailable = profile['is_available'] as bool? ?? true;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading profile: $e');
+    }
+  }
+
+  Future<void> _loadGeoData() async {
+    try {
+      final states = await SupabaseService.instance.getStates();
+      if (mounted) {
+        setState(() {
+          _states = states;
+          _isLoadingGeo = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading states: $e');
+      if (mounted) setState(() => _isLoadingGeo = false);
+    }
+  }
+
+  Future<void> _loadCitiesForState(String stateId) async {
+    try {
+      final cities = await SupabaseService.instance.getCitiesByState(stateId);
+      if (mounted) {
+        setState(() {
+          _cities = cities;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading cities: $e');
+    }
+  }
+
+  Future<void> _loadProviderGeoSettings() async {
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) return;
+
+    try {
+      final profile = await SupabaseService.instance.getUserProfile(userId);
+      if (profile != null && mounted) {
+        debugPrint('Loading geo settings - state: ${profile['selected_state_id']}, city: ${profile['selected_city_id']}');
+        
+        setState(() {
+          _selectedStateId = profile['selected_state_id'] as String?;
+          _selectedCityId = profile['selected_city_id'] as String?;
+          
+          if (_selectedStateId != null) {
+            _loadCitiesForState(_selectedStateId!);
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading provider geo settings: $e');
+    }
+  }
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
     _nameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
     _businessNameController.dispose();
     _businessImageController.dispose();
     _addressController.dispose();
+    _zipController.dispose();
+    _latController.dispose();
+    _lngController.dispose();
     super.dispose();
   }
 
   void _toggleEdit() => setState(() => _isEditing = !_isEditing);
 
-  void _saveProfile() {
+  // Debounced geocoding when address or zip changes
+  void _onAddressChanged(String value) {
+    _triggerGeocoding();
+  }
+
+  void _onZipChanged(String value) {
+    _triggerGeocoding();
+  }
+
+  void _triggerGeocoding() {
+    if (_debounceTimer?.isActive ?? false) {
+      _debounceTimer!.cancel();
+    }
+    
+    // Only geocode if we have both address (min 5 chars) and zip (min 3 chars)
+    final address = _addressController.text.trim();
+    final zip = _zipController.text.trim();
+    
+    if (address.length < 5 || zip.length < 3) return;
+    
+    _debounceTimer = Timer(const Duration(seconds: 1), () {
+      _geocodeFullAddress();
+    });
+  }
+
+  // Call OpenStreetMap API to geocode full address
+  Future<void> _geocodeFullAddress() async {
+    if (!_isEditing || _isGeocoding) return;
+    
+    setState(() => _isGeocoding = true);
+    
+    try {
+      // Build full address query with street + city + state + zip + country
+      final street = _addressController.text.trim();
+      final zip = _zipController.text.trim();
+      final city = _selectedCityId != null 
+          ? _cities.firstWhere((c) => c['id'] == _selectedCityId, orElse: () => {'name': ''})['name'] 
+          : '';
+      final state = _selectedStateId != null 
+          ? _states.firstWhere((s) => s['id'] == _selectedStateId, orElse: () => {'name': ''})['name'] 
+          : '';
+      
+      // Build query: street, city, state, zip, Mexico
+      final fullAddress = '$street, $city, $state, $zip, Mexico';
+      final query = Uri.encodeComponent(fullAddress);
+      
+      debugPrint('Geocoding: $fullAddress');
+      
+      final url = Uri.parse(
+        'https://nominatim.openstreetmap.org/search?q=$query&format=json&limit=1',
+      );
+      
+      final response = await http.get(
+        url,
+        headers: {'User-Agent': 'RoadRescueApp/1.0'},
+      ).timeout(const Duration(seconds: 10));
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as List;
+        
+        if (data.isNotEmpty) {
+          final result = data.first as Map<String, dynamic>;
+          final lat = result['lat'] as String?;
+          final lon = result['lon'] as String?;
+          
+          if (lat != null && lon != null) {
+            setState(() {
+              _latController.text = lat;
+              _lngController.text = lon;
+            });
+            
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Location found: $lat, $lon',
+                  style: GoogleFonts.manrope(fontSize: 13),
+                ),
+                backgroundColor: AppTheme.success,
+                behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 2),
+                margin: const EdgeInsets.all(16),
+              ),
+            );
+          }
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Address not found. Try a more specific address.',
+                style: GoogleFonts.manrope(fontSize: 13),
+              ),
+              backgroundColor: AppTheme.warning,
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.all(16),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Geocoding error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not find location. Please try again.',
+            style: GoogleFonts.manrope(fontSize: 13),
+          ),
+          backgroundColor: AppTheme.warning,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isGeocoding = false);
+      }
+    }
+  }
+
+  Future<void> _pickAndUploadAvatar() async {
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) return;
+
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 36, height: 4,
+              decoration: BoxDecoration(
+                color: AppTheme.outlineVariant,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined, color: AppTheme.primary),
+              title: Text('Choose from Gallery',
+                  style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w600)),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined, color: AppTheme.primary),
+              title: Text('Take a Photo',
+                  style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w600)),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return;
+
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(
+      source: source,
+      imageQuality: 85,
+      maxWidth: 512,
+      maxHeight: 512,
+    );
+    if (picked == null) return;
+
+    setState(() => _isUploadingAvatar = true);
+    try {
+      final url = await SupabaseService.instance.uploadAvatar(userId, picked.path);
+      await SupabaseService.instance.updateProfile(userId, {'avatar_url': url});
+      if (mounted) {
+        setState(() => _businessImageController.text = url);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Photo updated!',
+              style: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            backgroundColor: AppTheme.success,
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Avatar upload error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Failed to upload photo: $e',
+              style: GoogleFonts.manrope(fontSize: 13),
+            ),
+            backgroundColor: AppTheme.error,
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUploadingAvatar = false);
+    }
+  }
+
+  Future<void> _saveProfile() async {
     final l = LocalizationService.instance;
     setState(() => _isSaving = true);
-    Future.delayed(const Duration(milliseconds: 800), () {
+    
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) {
+      setState(() => _isSaving = false);
+      return;
+    }
+    
+    try {
+      // Save geo zone settings
+      final lat = double.tryParse(_latController.text);
+      final lng = double.tryParse(_lngController.text);
+      final address = _addressController.text.trim();
+      
+      final zip = _zipController.text.trim();
+      
+      debugPrint('DEBUG: _addressController.text = "${_addressController.text}"');
+      debugPrint('DEBUG: trimmed address = "$address"');
+      debugPrint('DEBUG: zip = "$zip"');
+      debugPrint('Saving profile - address: $address, zip: $zip, lat: $lat, lng: $lng');
+      
+      // Save geo zone settings
+      await SupabaseService.instance.updateProviderGeoZone(
+        providerId: userId,
+        stateId: _selectedStateId,
+        cityId: _selectedCityId,
+        address: address.isNotEmpty ? address : null,
+        zipCode: zip.isNotEmpty ? zip : null,
+        addressLat: lat,
+        addressLng: lng,
+      );
+      
+      // Save main profile data (name, email, phone, business name, availability)
+      await SupabaseService.instance.updateProfile(userId, {
+        'full_name': _nameController.text.trim(),
+        'email': _emailController.text.trim(),
+        'phone': _phoneController.text.trim(),
+        'business_name': _businessNameController.text.trim(),
+        'is_available': _isAvailable,
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+      
+      debugPrint('Profile saved successfully');
+      
+      await Future.delayed(const Duration(milliseconds: 500));
+      
       if (!mounted) return;
       setState(() {
         _isSaving = false;
@@ -69,7 +444,21 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
           margin: const EdgeInsets.all(16),
         ),
       );
-    });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Error saving profile: $e',
+            style: GoogleFonts.manrope(fontSize: 13),
+          ),
+          backgroundColor: AppTheme.error,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
   }
 
   @override
@@ -285,23 +674,36 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
               CircleAvatar(
                 radius: 44,
                 backgroundColor: AppTheme.primaryContainer,
-                backgroundImage: NetworkImage(_businessImageController.text),
-                onBackgroundImageError: (_, __) {},
-                child: Text(
-                  _nameController.text.isNotEmpty
-                      ? _nameController.text[0].toUpperCase()
-                      : 'P',
-                  style: GoogleFonts.manrope(
-                    fontSize: 32,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.primary,
-                  ),
-                ),
+                backgroundImage: _businessImageController.text.isNotEmpty
+                    ? NetworkImage(_businessImageController.text) as ImageProvider
+                    : null,
+                onBackgroundImageError: _businessImageController.text.isNotEmpty
+                    ? (_, __) {}
+                    : null,
+                child: _isUploadingAvatar
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary),
+                      )
+                    : _businessImageController.text.isEmpty
+                        ? Text(
+                            _nameController.text.isNotEmpty
+                                ? _nameController.text[0].toUpperCase()
+                                : 'P',
+                            style: GoogleFonts.manrope(
+                              fontSize: 32,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.primary,
+                            ),
+                          )
+                        : null,
               ),
-              if (_isEditing)
-                Positioned(
-                  bottom: 0,
-                  right: 0,
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: GestureDetector(
+                  onTap: _pickAndUploadAvatar,
                   child: Container(
                     width: 28,
                     height: 28,
@@ -317,6 +719,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
                     ),
                   ),
                 ),
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -466,12 +869,198 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
           ),
           _buildField(
             Icons.location_on_outlined,
-            l.t('address'),
+            l.t('street_address'),
             _addressController,
             l: l,
             enabled: _isEditing,
-            isLast: true,
+            onChanged: _onAddressChanged,
+            suffix: _isGeocoding
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : null,
           ),
+          _buildField(
+            Icons.local_post_office_outlined,
+            l.t('zip_code'),
+            _zipController,
+            l: l,
+            enabled: _isEditing,
+            onChanged: _onZipChanged,
+            keyboardType: TextInputType.number,
+          ),
+          if (_isLoadingGeo)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          else ...[
+            const SizedBox(height: 14),
+            Text(
+              'Service Location',
+              style: GoogleFonts.manrope(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 6),
+            // State Dropdown
+            DropdownButtonFormField<String>(
+              value: _selectedStateId,
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.map_outlined, size: 18, color: AppTheme.muted),
+                filled: true,
+                fillColor: AppTheme.surfaceVariant,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: AppTheme.outline),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: AppTheme.outline),
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+              hint: Text(
+                'Select State',
+                style: GoogleFonts.manrope(fontSize: 14, color: AppTheme.muted),
+              ),
+              items: _states.map((s) => DropdownMenuItem(
+                value: s['id'] as String,
+                child: Text(
+                  s['name'] as String,
+                  style: GoogleFonts.manrope(fontSize: 14),
+                ),
+              )).toList(),
+              onChanged: _isEditing ? (val) {
+                setState(() {
+                  _selectedStateId = val;
+                  _selectedCityId = null;
+                  _cities = [];
+                });
+                if (val != null) {
+                  _loadCitiesForState(val);
+                }
+                // Trigger geocoding after state change
+                _triggerGeocoding();
+              } : null,
+            ),
+            const SizedBox(height: 12),
+            // City Dropdown
+            if (_selectedStateId != null)
+              DropdownButtonFormField<String>(
+                value: _selectedCityId,
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.location_city_outlined, size: 18, color: AppTheme.muted),
+                  filled: true,
+                  fillColor: AppTheme.surfaceVariant,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: AppTheme.outline),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: AppTheme.outline),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+                hint: Text(
+                  'Select City',
+                  style: GoogleFonts.manrope(fontSize: 14, color: AppTheme.muted),
+                ),
+                items: _cities.map((c) => DropdownMenuItem(
+                  value: c['id'] as String,
+                  child: Text(
+                    c['name'] as String,
+                    style: GoogleFonts.manrope(fontSize: 14),
+                  ),
+                )).toList(),
+                onChanged: _isEditing ? (val) {
+                  setState(() => _selectedCityId = val);
+                  // Trigger geocoding after city change
+                  _triggerGeocoding();
+                } : null,
+              ),
+            const SizedBox(height: 14),
+            Text(
+              'Location Coordinates (for service range)',
+              style: GoogleFonts.manrope(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 6),
+            
+            // Interactive Map for Location Adjustment
+            if (_latController.text.isNotEmpty && _lngController.text.isNotEmpty)
+              ServiceAreaMapWidget(
+                latitude: double.tryParse(_latController.text) ?? 20.5,
+                longitude: double.tryParse(_lngController.text) ?? -87.2,
+                serviceRange: 25, // Default display range
+                distanceUnit: _distanceUnit,
+                showSlider: false, // No range slider on profile
+                allowMarkerMove: _isEditing,
+                onLocationChanged: _isEditing ? (lat, lng) {
+                  setState(() {
+                    _latController.text = lat.toString();
+                    _lngController.text = lng.toString();
+                  });
+                } : null,
+              )
+            else
+              Container(
+                height: 150,
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceVariant,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(
+                  child: Text(
+                    'Enter address and ZIP to see location on map',
+                    style: GoogleFonts.manrope(
+                      fontSize: 13,
+                      color: AppTheme.muted,
+                    ),
+                  ),
+                ),
+              ),
+            
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildField(
+                    Icons.explore_outlined,
+                    'Latitude (Auto)',
+                    _latController,
+                    l: l,
+                    enabled: false, // Read-only, auto-populated
+                    readOnly: true,
+                    keyboardType: TextInputType.number,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildField(
+                    Icons.explore_outlined,
+                    'Longitude (Auto)',
+                    _lngController,
+                    l: l,
+                    enabled: false, // Read-only, auto-populated
+                    readOnly: true,
+                    keyboardType: TextInputType.number,
+                    isLast: true,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -484,7 +1073,10 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
     required LocalizationService l,
     bool enabled = false,
     bool isLast = false,
+    bool readOnly = false,
     TextInputType keyboardType = TextInputType.text,
+    ValueChanged<String>? onChanged,
+    Widget? suffix,
   }) {
     return Padding(
       padding: EdgeInsets.only(bottom: isLast ? 0 : 14),
@@ -504,10 +1096,18 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
               ? TextField(
                   controller: controller,
                   keyboardType: keyboardType,
+                  readOnly: readOnly,
+                  onChanged: onChanged,
                   decoration: InputDecoration(
                     prefixIcon: Icon(icon, size: 18, color: AppTheme.muted),
+                    suffixIcon: suffix != null
+                      ? Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: suffix,
+                        )
+                      : null,
                     filled: true,
-                    fillColor: AppTheme.surfaceVariant,
+                    fillColor: readOnly ? AppTheme.surface.withAlpha(100) : AppTheme.surfaceVariant,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                       borderSide: const BorderSide(color: AppTheme.outline),
@@ -530,7 +1130,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
                   ),
                   style: GoogleFonts.manrope(
                     fontSize: 14,
-                    color: AppTheme.onSurface,
+                    color: readOnly ? AppTheme.muted : AppTheme.onSurface,
                   ),
                 )
               : Row(
@@ -664,6 +1264,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
             () => Navigator.pushReplacementNamed(
               context,
               AppRoutes.jobRequestsScreen,
+              arguments: {'initialTabIndex': 2}, // Plans tab
             ),
           ),
           const Divider(height: 1, color: AppTheme.outlineVariant),
@@ -674,6 +1275,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
             () => Navigator.pushReplacementNamed(
               context,
               AppRoutes.jobRequestsScreen,
+              arguments: {'initialTabIndex': 1}, // Services tab
             ),
           ),
           _buildActionRow(

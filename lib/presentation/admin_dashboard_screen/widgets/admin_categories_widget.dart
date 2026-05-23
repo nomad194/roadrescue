@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../config/app_constants.dart';
 import '../../../theme/app_theme.dart';
 import '../../../services/localization_service.dart';
 import '../../../widgets/multilingual_tabs_widget.dart';
@@ -40,50 +41,8 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
     }
   }
 
-  static const List<Map<String, dynamic>> _vehicleSizeOptions = [
-    {
-      'id': 'motorcycle',
-      'label': 'Motorcycle',
-      'emoji': '🏍️',
-      'imageUrl':
-          'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=120&h=80&fit=crop',
-    },
-    {
-      'id': 'sedan',
-      'label': 'Sedan / Car',
-      'emoji': '🚗',
-      'imageUrl':
-          'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=120&h=80&fit=crop',
-    },
-    {
-      'id': 'suv',
-      'label': 'SUV / Crossover',
-      'emoji': '🚙',
-      'imageUrl':
-          'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?w=120&h=80&fit=crop',
-    },
-    {
-      'id': 'pickup',
-      'label': 'Pickup Truck',
-      'emoji': '🛻',
-      'imageUrl':
-          'https://images.unsplash.com/photo-1558618047-3c8c76ca7d13?w=120&h=80&fit=crop',
-    },
-    {
-      'id': 'van',
-      'label': 'Van / Minivan',
-      'emoji': '🚐',
-      'imageUrl':
-          'https://images.unsplash.com/photo-1609521263047-f8f205293f24?w=120&h=80&fit=crop',
-    },
-    {
-      'id': 'large_truck',
-      'label': 'Large Truck',
-      'emoji': '🚛',
-      'imageUrl':
-          'https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?w=120&h=80&fit=crop',
-    },
-  ];
+  // Use shared vehicle size options from AppConstants
+  List<Map<String, dynamic>> get _vehicleSizeOptions => AppConstants.vehicleSizeOptions;
 
   String _getCategoryName(Map<String, dynamic> category) {
     final l = LocalizationService.instance;
@@ -529,11 +488,14 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
           ),
           ElevatedButton(
             onPressed: () async {
+              debugPrint('Deleting category ID: $id');
               try {
+                debugPrint('Attempting delete...');
                 await Supabase.instance.client
                     .from('service_categories')
                     .delete()
                     .eq('id', id);
+                debugPrint('Delete successful');
                 if (mounted) {
                   final messenger = ScaffoldMessenger.of(context);
                   final nav = Navigator.of(context);
@@ -541,7 +503,7 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
                   messenger.showSnackBar(
                     const SnackBar(
                       content: Text('Category deleted'),
-                      backgroundColor: AppTheme.error,
+                      backgroundColor: AppTheme.success,
                       behavior: SnackBarBehavior.floating,
                     ),
                   );
@@ -552,7 +514,7 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('Error: $e'),
+                      content: Text('Delete failed: $e'),
                       backgroundColor: AppTheme.error,
                       behavior: SnackBarBehavior.floating,
                     ),

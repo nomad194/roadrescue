@@ -5,10 +5,10 @@ import '../../routes/app_routes.dart';
 import './widgets/admin_categories_widget.dart';
 import './widgets/admin_geo_zones_widget.dart';
 import './widgets/admin_providers_widget.dart';
-import './widgets/admin_pricing_widget.dart';
 import './widgets/admin_transactions_widget.dart';
 import './widgets/admin_app_config_widget.dart';
 import './widgets/admin_payments_widget.dart';
+import './widgets/admin_payment_methods_widget.dart';
 import '../../widgets/language_selector_widget.dart';
 import '../../services/localization_service.dart';
 
@@ -40,8 +40,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       'icon': Icons.verified_user_outlined,
     },
     {
-      'label': LocalizationService.instance.t('pricing'),
-      'icon': Icons.price_change_outlined,
+      'label': 'Payment Methods',
+      'icon': Icons.payment_outlined,
     },
     {
       'label': LocalizationService.instance.t('payment'),
@@ -112,20 +112,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               ),
             ),
             const SizedBox(width: 8),
-            Flexible(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    LocalizationService.instance.t('admin_panel'),
-                    style: GoogleFonts.manrope(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.onSurface,
-                    ),
-                    overflow: TextOverflow.ellipsis,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  LocalizationService.instance.t('admin_panel'),
+                  style: GoogleFonts.manrope(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.onSurface,
                   ),
+                  overflow: TextOverflow.ellipsis,
+                ),
                   Text(
                     'Management',
                     style: GoogleFonts.manrope(
@@ -136,7 +135,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   ),
                 ],
               ),
-            ),
           ],
         ),
         actions: [
@@ -281,7 +279,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           RepaintBoundary(child: _TabContent(child: AdminCategoriesWidget())),
           RepaintBoundary(child: _TabContent(child: AdminGeoZonesWidget())),
           RepaintBoundary(child: _TabContent(child: AdminProvidersWidget())),
-          RepaintBoundary(child: _TabContent(child: AdminPricingWidget())),
+          RepaintBoundary(child: _TabContent(child: AdminPaymentMethodsWidget())),
           RepaintBoundary(child: _TabContent(child: AdminPaymentsWidget())),
           RepaintBoundary(child: _TabContent(child: AdminTransactionsWidget())),
           RepaintBoundary(child: _TabContent(child: AdminAppConfigWidget())),

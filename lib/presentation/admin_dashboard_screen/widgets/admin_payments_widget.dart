@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../config/app_constants.dart';
 import '../../../theme/app_theme.dart';
 import '../../../services/localization_service.dart';
 import '../../../widgets/multilingual_tabs_widget.dart';
@@ -107,12 +108,10 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
         {
           'setting_key': 'commission_enabled',
           'setting_value': _commissionEnabled.toString(),
-          'setting_type': 'boolean',
         },
         {
           'setting_key': 'commission_percent',
           'setting_value': _commissionPercent.toString(),
-          'setting_type': 'number',
         },
       ]);
       if (mounted) {
@@ -125,6 +124,7 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
         );
       }
     } catch (e) {
+      debugPrint('Commission save error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -145,12 +145,10 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
         {
           'setting_key': 'post_payment_screen_online',
           'setting_value': _postPaymentOnline.toString(),
-          'setting_type': 'boolean',
         },
         {
           'setting_key': 'post_payment_screen_cash',
           'setting_value': _postPaymentCash.toString(),
-          'setting_type': 'boolean',
         },
       ]);
       if (mounted) {
@@ -173,7 +171,6 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
         {
           'setting_key': 'whatsapp_chat_enabled',
           'setting_value': _whatsappEnabled.toString(),
-          'setting_type': 'boolean',
         },
       ]);
       if (mounted) {
@@ -199,16 +196,16 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
       text: plan?['price_yearly']?.toString() ?? '',
     );
     final trialCtrl = TextEditingController(
-      text: plan?['trial_days']?.toString() ?? '0',
+      text: plan?['trial_days']?.toString() ?? AppConstants.defaultTrialDays.toString(),
     );
     final discountCtrl = TextEditingController(
-      text: plan?['discount_percent']?.toString() ?? '0',
+      text: plan?['discount_percent']?.toString() ?? AppConstants.defaultDiscountPercent.toString(),
     );
     final maxRadiusCtrl = TextEditingController(
-      text: plan?['max_radius_miles']?.toString() ?? '25',
+      text: plan?['max_radius_miles']?.toString() ?? AppConstants.defaultMaxRadiusMiles.toString(),
     );
     final maxCategoriesCtrl = TextEditingController(
-      text: plan?['max_categories']?.toString() ?? '2',
+      text: plan?['max_categories']?.toString() ?? AppConstants.defaultMaxCategories.toString(),
     );
     final featureAddCtrl = TextEditingController();
     final badgeCtrl = TextEditingController(text: plan?['badge_text'] ?? '');
@@ -216,6 +213,7 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
     Map<String, String> nameTranslations = Map<String, String>.from(
       plan?['name_translations'] ?? {},
     );
+    String _selectedLangCode = LocalizationService.instance.defaultLanguage;
     List<String> features = List<String>.from(plan?['features'] ?? []);
     bool isActive = plan?['is_active'] ?? true;
     bool isFeatured = plan?['is_featured'] ?? false;
@@ -244,13 +242,43 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _dialogField(nameCtrl, 'Plan Name', hint: 'e.g. Basic, Pro'),
+                  Text(
+                    'Plan Name',
+                    style: GoogleFonts.manrope(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.surfaceVariant,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppTheme.outline),
+                    ),
+                    child: Text(
+                      nameTranslations[_selectedLangCode]?.isNotEmpty == true
+                          ? nameTranslations[_selectedLangCode]!
+                          : (nameCtrl.text.isNotEmpty ? nameCtrl.text : '—'),
+                      style: GoogleFonts.manrope(
+                        fontSize: 13,
+                        color: AppTheme.onSurface,
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   MultilingualTabsWidget(
                     initialTranslations: nameTranslations,
                     fieldLabel: 'Name Translations',
                     hint: 'Plan name in other languages',
-                    onChanged: (updated) => nameTranslations = updated,
+                    onChanged: (updated) {
+                      nameTranslations = updated;
+                      setDialogState(() {});
+                    },
+                    onTabChanged: (code) => setDialogState(() => _selectedLangCode = code),
                   ),
                   const SizedBox(height: 16),
                   Row(
@@ -578,10 +606,10 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
                 final Map<String, dynamic> data = {
                   'name': nameCtrl.text.trim(),
                   'name_translations': nameTranslations,
-                  'price_monthly': double.tryParse(priceMCtrl.text) ?? 0,
+                  'price_monthly': double.tryParse(priceMCtrl.text) ?? 0.0,
                   'price_yearly': double.tryParse(priceYCtrl.text),
                   'trial_days': int.tryParse(trialCtrl.text) ?? 0,
-                  'discount_percent': double.tryParse(discountCtrl.text) ?? 0,
+                  'discount_percent': int.tryParse(discountCtrl.text) ?? 0, // Fixed: int not double
                   'features': features,
                   'is_active': isActive,
                   'is_featured': isFeatured,
@@ -594,23 +622,50 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
                   'can_set_distance_surcharges': canSetDistanceSurcharges,
                   'updated_at': DateTime.now().toIso8601String(),
                 };
+                debugPrint('Saving plan data: $data');
+                debugPrint('Plan ID: ${plan?['id']}');
+                debugPrint('Current user: ${Supabase.instance.client.auth.currentUser?.id}');
                 try {
                   if (plan == null) {
-                    await Supabase.instance.client
+                    final result = await Supabase.instance.client
                         .from('subscription_plans')
-                        .insert(data);
+                        .insert(data)
+                        .select();
+                    debugPrint('Insert result: $result');
                   } else {
-                    await Supabase.instance.client
+                    debugPrint('Updating plan with ID: ${plan['id']}');
+                    final result = await Supabase.instance.client
                         .from('subscription_plans')
                         .update(data)
-                        .eq('id', plan['id']);
+                        .eq('id', plan['id'])
+                        .select();
+                    debugPrint('Update result: $result');
+                    if (result.isEmpty) {
+                      debugPrint('WARNING: No rows updated - check RLS policy or plan ID');
+                    }
                   }
                   if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Plan saved successfully!'),
+                        backgroundColor: AppTheme.success,
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
                     Navigator.pop(context);
                     _loadPlans();
                   }
                 } catch (e) {
                   debugPrint('Save plan error: $e');
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Save failed: $e'),
+                        backgroundColor: AppTheme.error,
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
                 }
               },
               style: ElevatedButton.styleFrom(
@@ -1110,10 +1165,34 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
         );
       },
       onDismissed: (_) async {
-        await Supabase.instance.client
-            .from('subscription_plans')
-            .delete()
-            .eq('id', plan['id']);
+        try {
+          debugPrint('Deleting plan: ${plan['id']}');
+          await Supabase.instance.client
+              .from('subscription_plans')
+              .delete()
+              .eq('id', plan['id']);
+          debugPrint('Plan deleted successfully');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Plan deleted'),
+                backgroundColor: AppTheme.success,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        } catch (e) {
+          debugPrint('Delete plan error: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Delete failed: $e'),
+                backgroundColor: AppTheme.error,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        }
         _loadPlans();
       },
       child: Container(

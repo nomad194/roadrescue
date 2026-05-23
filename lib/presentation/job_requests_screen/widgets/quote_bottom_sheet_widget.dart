@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../theme/app_theme.dart';
 import '../../../services/localization_service.dart';
+import '../../../services/supabase_service.dart';
 
 class QuoteBottomSheetWidget extends StatefulWidget {
   final dynamic job;
@@ -23,15 +24,46 @@ class _QuoteBottomSheetWidgetState extends State<QuoteBottomSheetWidget> {
   final _priceController = TextEditingController();
   final _etaController = TextEditingController();
   final _noteController = TextEditingController();
-  bool _offerCash = true;
-  bool _offerOnline = true;
+  bool _offerCash = false;
+  bool _offerOnline = false;
   bool _isSubmitting = false;
+  bool _isLoadingMethods = true;
+  bool _cashEnabledGlobally = false;
+  bool _onlineEnabledGlobally = false;
 
   @override
   void initState() {
     super.initState();
     _priceController.text = widget.job.estimatedValue.toStringAsFixed(0);
     _etaController.text = '20';
+    _loadPaymentMethods();
+  }
+
+  Future<void> _loadPaymentMethods() async {
+    try {
+      final methods = await SupabaseService.instance.getPaymentMethods();
+      if (mounted) {
+        setState(() {
+          _cashEnabledGlobally = methods.any((m) => m['code'] == 'cash' && m['is_enabled'] == true);
+          _onlineEnabledGlobally = methods.any((m) => m['code'] == 'stripe' && m['is_enabled'] == true);
+          // Default to offering if globally enabled
+          _offerCash = _cashEnabledGlobally;
+          _offerOnline = _onlineEnabledGlobally;
+          _isLoadingMethods = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          // Fallback to enabled if can't load
+          _cashEnabledGlobally = true;
+          _onlineEnabledGlobally = true;
+          _offerCash = true;
+          _offerOnline = true;
+          _isLoadingMethods = false;
+        });
+      }
+    }
   }
 
   @override
@@ -270,23 +302,58 @@ class _QuoteBottomSheetWidgetState extends State<QuoteBottomSheetWidget> {
                 const SizedBox(height: 16),
                 _buildFieldLabel(l.t('payment_methods_offered')),
                 const SizedBox(height: 8),
-                Row(
-                  children: [
-                    _PaymentToggle(
-                      label: l.t('cash'),
-                      icon: Icons.payments_outlined,
-                      isEnabled: _offerCash,
-                      onChanged: (v) => setState(() => _offerCash = v),
+                if (_isLoadingMethods)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(12),
+                      child: CircularProgressIndicator(strokeWidth: 2),
                     ),
-                    const SizedBox(width: 10),
-                    _PaymentToggle(
-                      label: l.t('online'),
-                      icon: Icons.credit_card_outlined,
-                      isEnabled: _offerOnline,
-                      onChanged: (v) => setState(() => _offerOnline = v),
+                  )
+                else if (!_cashEnabledGlobally && !_onlineEnabledGlobally)
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.errorContainer.withAlpha(100),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppTheme.error.withAlpha(50)),
                     ),
-                  ],
-                ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.warning_amber_rounded, size: 18, color: AppTheme.error),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'No payment methods are currently enabled. Contact admin.',
+                            style: GoogleFonts.manrope(
+                              fontSize: 13,
+                              color: AppTheme.error,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  Row(
+                    children: [
+                      if (_cashEnabledGlobally)
+                        _PaymentToggle(
+                          label: l.t('cash'),
+                          icon: Icons.payments_outlined,
+                          isEnabled: _offerCash,
+                          onChanged: (v) => setState(() => _offerCash = v),
+                        ),
+                      if (_cashEnabledGlobally && _onlineEnabledGlobally)
+                        const SizedBox(width: 10),
+                      if (_onlineEnabledGlobally)
+                        _PaymentToggle(
+                          label: l.t('online'),
+                          icon: Icons.credit_card_outlined,
+                          isEnabled: _offerOnline,
+                          onChanged: (v) => setState(() => _offerOnline = v),
+                        ),
+                    ],
+                  ),
                 const SizedBox(height: 20),
                 SizedBox(
                   width: double.infinity,

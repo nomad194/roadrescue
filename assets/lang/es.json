@@ -235,6 +235,8 @@
     "settings": "Configuraci\u00f3n",
     "personal_info": "Informaci\u00f3n Personal",
     "address": "Direcci\u00f3n",
+    "street_address": "Direcci\u00f3n Calle",
+    "zip_code": "C\u00f3digo Postal",
     "update_profile": "Actualizar Perfil",
     "profile_updated": "\u00a1Perfil actualizado correctamente!",
     "subscription": "Suscripci\u00f3n",

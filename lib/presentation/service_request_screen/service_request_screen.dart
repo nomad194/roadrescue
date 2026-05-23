@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:convert';
 
 import '../../routes/app_routes.dart';
+import '../../config/app_constants.dart';
 import '../../services/supabase_service.dart';
 import '../../services/localization_service.dart';
 import '../../theme/app_theme.dart';
@@ -13,6 +14,7 @@ import './widgets/request_submit_button_widget.dart';
 import './widgets/service_category_grid_widget.dart';
 import './widgets/active_request_banner_widget.dart';
 import './widgets/help_request_detail_sheet.dart';
+import '../../widgets/review_dialog_widget.dart';
 
 class ServiceRequestScreen extends StatefulWidget {
   const ServiceRequestScreen({super.key});
@@ -36,14 +38,7 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
 
   final _descriptionController = TextEditingController();
 
-  static const List<Map<String, dynamic>> _vehicleSizeOptions = [
-    {'id': 'motorcycle', 'label': 'Motorcycle', 'emoji': '🏍️'},
-    {'id': 'sedan', 'label': 'Sedan / Car', 'emoji': '🚗'},
-    {'id': 'suv', 'label': 'SUV', 'emoji': '🚙'},
-    {'id': 'pickup', 'label': 'Pickup', 'emoji': '🛻'},
-    {'id': 'van', 'label': 'Van', 'emoji': '🚐'},
-    {'id': 'large_truck', 'label': 'Large Truck', 'emoji': '🚛'},
-  ];
+  List<Map<String, dynamic>> get _vehicleSizeOptions => AppConstants.vehicleSizeOptions;
 
   List<Map<String, dynamic>> get _availableVehicleSizes {
     if (_selectedCategory == null) return [];
@@ -158,9 +153,18 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
             setState(() => _activeRequest = _mapToActiveRequest(updated));
           } else {
             // Not found in "Active" filter (means it's completed or cancelled)
+            // Check if it was completed (not cancelled) to show review dialog
+            final completedJobId = _activeRequest?.id;
+            final wasCompleted = record['job_status'] == 'completed';
             setState(() => _activeRequest = null);
             _requestSubscription?.unsubscribe();
             _requestSubscription = null;
+            if (wasCompleted && completedJobId != null && mounted) {
+              await Future.delayed(const Duration(milliseconds: 400));
+              if (mounted) {
+                ReviewDialogWidget.show(context, completedJobId, () {});
+              }
+            }
           }
         }
       },
@@ -374,7 +378,6 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Row(
-                mainAxisSize: MainAxisSize.min,
                 children: [
                   const Icon(
                     Icons.info_outline_rounded,
@@ -426,19 +429,32 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
 
   void _openRequestDetail() async {
     if (_activeRequest == null) return;
+    final jobId = _activeRequest!.id;
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _ActiveRequestDetailWrapper(
         onCancel: _cancelRequest,
-        requestId: _activeRequest!.id,
+        requestId: jobId,
       ),
     );
     
-    // When the sheet is closed (completed, cancelled, or dismissed), 
-    // re-fetch active state to ensure banner is updated/removed.
-    _loadActiveRequest();
+    // When the sheet is closed, re-fetch to see if it completed
+    await _loadActiveRequest();
+    
+    // If no longer active, check if it completed — show review dialog
+    if (_activeRequest == null && mounted) {
+      final recentJob = await Supabase.instance.client
+          .from('job_requests')
+          .select('id, job_status')
+          .eq('id', jobId)
+          .maybeSingle();
+      if (recentJob != null && recentJob['job_status'] == 'completed' && mounted) {
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (mounted) ReviewDialogWidget.show(context, jobId, () {});
+      }
+    }
   }
 
   Future<void> _cancelRequest() async {
@@ -683,7 +699,7 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
         _buildSectionHeader(l.t('vehicle_size'), l.t('vehicle_size_subtitle')),
         const SizedBox(height: 12),
         SizedBox(
-          height: 90,
+          height: 100,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: _availableVehicleSizes.length,
@@ -697,7 +713,7 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
                 ),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
-                  width: 80,
+                  width: 85,
                   padding: const EdgeInsets.symmetric(
                     vertical: 10,
                     horizontal: 8,
@@ -732,7 +748,7 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
                       Text(
                         vehicle['label'] as String,
                         style: GoogleFonts.manrope(
-                          fontSize: 10,
+                          fontSize: 9,
                           fontWeight: FontWeight.w600,
                           color: isSelected
                               ? Colors.white

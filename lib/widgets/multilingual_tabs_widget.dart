@@ -21,6 +21,9 @@ class MultilingualTabsWidget extends StatefulWidget {
   /// Called whenever translations change
   final ValueChanged<Map<String, String>> onChanged;
 
+  /// Called when the selected language tab changes, with the new language code
+  final ValueChanged<String>? onTabChanged;
+
   /// Which languages to show tabs for (defaults to all enabled)
   final List<String>? enabledLanguages;
 
@@ -32,6 +35,7 @@ class MultilingualTabsWidget extends StatefulWidget {
     this.hint,
     this.maxLines = 1,
     this.enabledLanguages,
+    this.onTabChanged,
   });
 
   @override
@@ -57,6 +61,11 @@ class _MultilingualTabsWidgetState extends State<MultilingualTabsWidget>
         ),
     };
     _tabController = TabController(length: _langCodes.length, vsync: this);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        widget.onTabChanged?.call(_langCodes[_tabController.index]);
+      }
+    });
 
     // Listen for changes and notify parent
     for (final entry in _controllers.entries) {

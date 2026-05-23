@@ -4,6 +4,8 @@ import '../../theme/app_theme.dart';
 import '../../routes/app_routes.dart';
 import '../../widgets/language_selector_widget.dart';
 import '../../services/localization_service.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../services/supabase_service.dart';
 
 class CustomerProfileScreen extends StatefulWidget {
   const CustomerProfileScreen({super.key});
@@ -15,18 +17,17 @@ class CustomerProfileScreen extends StatefulWidget {
 class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
   bool _isEditing = false;
   bool _isSaving = false;
+  bool _isLoading = true;
+  bool _isUploadingAvatar = false;
 
-  final _nameController = TextEditingController(text: 'Marcus Johnson');
-  final _emailController = TextEditingController(
-    text: 'marcus.johnson@email.com',
-  );
-  final _phoneController = TextEditingController(text: '+1 (512) 555-0174');
-  final _addressController = TextEditingController(
-    text: '4721 Maple Ave, Austin, TX',
-  );
+  final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _addressController = TextEditingController();
 
-  final String _profileImageUrl =
-      'https://images.pexels.com/photos/1222271/pexels-photo-1222271.jpeg';
+  String? _avatarUrl;
+  int _totalRequests = 0;
+  int _completedRequests = 0;
 
   @override
   void dispose() {
@@ -37,13 +38,151 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
     super.dispose();
   }
 
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final profile = await SupabaseService.instance.getUserProfile(userId);
+      if (profile != null && mounted) {
+        setState(() {
+          _nameController.text = profile['full_name'] as String? ?? '';
+          _emailController.text = profile['email'] as String? ??
+              SupabaseService.instance.currentUser?.email ?? '';
+          _phoneController.text = profile['phone'] as String? ?? '';
+          _addressController.text = profile['address'] as String? ?? '';
+          _avatarUrl = profile['avatar_url'] as String?;
+        });
+      }
+
+      // Load job counts
+      final jobs = await SupabaseService.instance.getJobHistory();
+      if (mounted) {
+        setState(() {
+          _totalRequests = jobs.length;
+          _completedRequests = jobs.where((j) => j['job_status'] == 'completed').length;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading customer profile: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _pickAndUploadAvatar() async {
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) return;
+
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 36, height: 4,
+              decoration: BoxDecoration(
+                color: AppTheme.outlineVariant,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined, color: AppTheme.primary),
+              title: Text('Choose from Gallery',
+                  style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w600)),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined, color: AppTheme.primary),
+              title: Text('Take a Photo',
+                  style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w600)),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return;
+
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(
+      source: source,
+      imageQuality: 85,
+      maxWidth: 512,
+      maxHeight: 512,
+    );
+    if (picked == null) return;
+
+    setState(() => _isUploadingAvatar = true);
+    try {
+      final url = await SupabaseService.instance.uploadAvatar(userId, picked.path);
+      await SupabaseService.instance.updateProfile(userId, {'avatar_url': url});
+      if (mounted) {
+        setState(() => _avatarUrl = url);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Photo updated!',
+              style: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            backgroundColor: AppTheme.success,
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Avatar upload error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Failed to upload photo: $e',
+              style: GoogleFonts.manrope(fontSize: 13),
+            ),
+            backgroundColor: AppTheme.error,
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUploadingAvatar = false);
+    }
+  }
+
   void _toggleEdit() {
     setState(() => _isEditing = !_isEditing);
   }
 
-  void _saveProfile() {
+  Future<void> _saveProfile() async {
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) return;
+
     setState(() => _isSaving = true);
-    Future.delayed(const Duration(milliseconds: 800), () {
+    try {
+      await SupabaseService.instance.updateProfile(userId, {
+        'full_name': _nameController.text.trim(),
+        'phone': _phoneController.text.trim(),
+        'address': _addressController.text.trim(),
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+
       if (!mounted) return;
       setState(() {
         _isSaving = false;
@@ -53,20 +192,29 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
         SnackBar(
           content: Text(
             LocalizationService.instance.t('profile_updated'),
-            style: GoogleFonts.manrope(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
+            style: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600),
           ),
           backgroundColor: AppTheme.success,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           margin: const EdgeInsets.all(16),
         ),
       );
-    });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Error saving profile: $e',
+            style: GoogleFonts.manrope(fontSize: 13),
+          ),
+          backgroundColor: AppTheme.error,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
   }
 
   @override
@@ -163,20 +311,22 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            _buildProfileHeader(l),
-            const SizedBox(height: 20),
-            _buildInfoCard(l),
-            const SizedBox(height: 16),
-            _buildStatsCard(l),
-            const SizedBox(height: 16),
-            _buildActionsCard(l),
-          ],
-        ),
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  _buildProfileHeader(l),
+                  const SizedBox(height: 20),
+                  _buildInfoCard(l),
+                  const SizedBox(height: 16),
+                  _buildStatsCard(l),
+                  const SizedBox(height: 16),
+                  _buildActionsCard(l),
+                ],
+              ),
+            ),
     );
   }
 
@@ -195,41 +345,52 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
               CircleAvatar(
                 radius: 44,
                 backgroundColor: AppTheme.primaryContainer,
-                backgroundImage: NetworkImage(_profileImageUrl),
-                onBackgroundImageError: (_, __) {},
-                child: Text(
-                  _nameController.text.isNotEmpty
-                      ? _nameController.text[0].toUpperCase()
-                      : 'U',
-                  style: GoogleFonts.manrope(
-                    fontSize: 32,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.primary,
-                  ),
-                ),
+                backgroundImage: _avatarUrl != null && _avatarUrl!.isNotEmpty
+                    ? NetworkImage(_avatarUrl!) as ImageProvider
+                    : null,
+                onBackgroundImageError: _avatarUrl != null && _avatarUrl!.isNotEmpty
+                    ? (_, __) {}
+                    : null,
+                child: _isUploadingAvatar
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary),
+                      )
+                    : _avatarUrl == null || _avatarUrl!.isEmpty
+                        ? Text(
+                            _nameController.text.isNotEmpty
+                                ? _nameController.text[0].toUpperCase()
+                                : 'U',
+                            style: GoogleFonts.manrope(
+                              fontSize: 32,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.primary,
+                            ),
+                          )
+                        : null,
               ),
-              if (_isEditing)
-                Positioned(
-                  bottom: 0,
-                  right: 0,
-                  child: GestureDetector(
-                    onTap: () {},
-                    child: Container(
-                      width: 28,
-                      height: 28,
-                      decoration: BoxDecoration(
-                        color: AppTheme.primary,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
-                      ),
-                      child: const Icon(
-                        Icons.camera_alt,
-                        size: 14,
-                        color: Colors.white,
-                      ),
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: GestureDetector(
+                  onTap: _pickAndUploadAvatar,
+                  child: Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: AppTheme.primary,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                    child: const Icon(
+                      Icons.camera_alt,
+                      size: 14,
+                      color: Colors.white,
                     ),
                   ),
                 ),
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -420,24 +581,17 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
           Row(
             children: [
               _buildStatItem(
-                '12',
+                '$_totalRequests',
                 l.t('total_requests'),
                 AppTheme.primary,
                 AppTheme.primaryContainer,
               ),
               const SizedBox(width: 10),
               _buildStatItem(
-                '10',
+                '$_completedRequests',
                 l.t('done'),
                 AppTheme.success,
                 AppTheme.successContainer,
-              ),
-              const SizedBox(width: 10),
-              _buildStatItem(
-                '4.8',
-                l.t('rating'),
-                AppTheme.warning,
-                AppTheme.warningContainer,
               ),
             ],
           ),

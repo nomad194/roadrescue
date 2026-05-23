@@ -28,7 +28,7 @@ class _AdminAppConfigWidgetState extends State<AdminAppConfigWidget>
     {'label': 'Content', 'icon': Icons.article},
   ];
 
-  final _appNameController = TextEditingController(text: 'RoadRescue');
+  final _appNameController = TextEditingController();
   final _appTaglineController = TextEditingController();
   final _supportEmailController = TextEditingController();
   final _supportPhoneController = TextEditingController();
@@ -51,6 +51,8 @@ class _AdminAppConfigWidgetState extends State<AdminAppConfigWidget>
   final Map<String, String> _termsTranslations = {};
   final Map<String, String> _privacyTranslations = {};
   bool _enableOnboardingSlider = true;
+  bool _showDemoCredentials = false;
+  bool _showRoleSwitcher = true;
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -137,6 +139,12 @@ class _AdminAppConfigWidgetState extends State<AdminAppConfigWidget>
           if (settings.containsKey('enable_onboarding_slider')) {
             _enableOnboardingSlider = settings['enable_onboarding_slider'] == 'true';
           }
+          if (settings.containsKey('show_demo_credentials')) {
+            _showDemoCredentials = settings['show_demo_credentials'] == 'true';
+          }
+          if (settings.containsKey('show_role_switcher')) {
+            _showRoleSwitcher = settings['show_role_switcher'] != 'false';
+          }
           _isLoading = false;
         });
       }
@@ -161,24 +169,26 @@ class _AdminAppConfigWidgetState extends State<AdminAppConfigWidget>
       final String secondaryHex = '#${_secondaryColor.toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';
 
       await Supabase.instance.client.from('app_settings').upsert([
-        {'setting_key': 'app_name', 'setting_value': _appNameController.text.trim(), 'setting_type': 'text'},
-        {'setting_key': 'app_tagline', 'setting_value': _appTaglineController.text.trim(), 'setting_type': 'text'},
-        {'setting_key': 'support_email', 'setting_value': _supportEmailController.text.trim(), 'setting_type': 'text'},
-        {'setting_key': 'support_phone', 'setting_value': _supportPhoneController.text.trim(), 'setting_type': 'text'},
-        {'setting_key': 'distance_unit', 'setting_value': _distanceUnit, 'setting_type': 'text'},
-        {'setting_key': 'default_language', 'setting_value': _defaultLanguage, 'setting_type': 'text'},
-        {'setting_key': 'google_maps_key', 'setting_value': _googleMapsKeyController.text.trim(), 'setting_type': 'text'},
-        {'setting_key': 'stripe_publishable_key', 'setting_value': _stripeKeyController.text.trim(), 'setting_type': 'text'},
-        {'setting_key': 'logo_url', 'setting_value': _logoUrlController.text.trim(), 'setting_type': 'text'},
-        {'setting_key': 'primary_color', 'setting_value': primaryHex, 'setting_type': 'text'},
-        {'setting_key': 'secondary_color', 'setting_value': secondaryHex, 'setting_type': 'text'},
-        {'setting_key': 'facebook_url', 'setting_value': _facebookController.text.trim(), 'setting_type': 'text'},
-        {'setting_key': 'instagram_url', 'setting_value': _instagramController.text.trim(), 'setting_type': 'text'},
-        {'setting_key': 'twitter_url', 'setting_value': _twitterController.text.trim(), 'setting_type': 'text'},
-        {'setting_key': 'terms_of_service', 'setting_value': json.encode(_termsTranslations), 'setting_type': 'json'},
-        {'setting_key': 'privacy_policy', 'setting_value': json.encode(_privacyTranslations), 'setting_type': 'json'},
-        {'setting_key': 'faq_content', 'setting_value': json.encode(_faqs), 'setting_type': 'json'},
-        {'setting_key': 'enable_onboarding_slider', 'setting_value': _enableOnboardingSlider.toString(), 'setting_type': 'boolean'},
+        {'setting_key': 'app_name', 'setting_value': _appNameController.text.trim()},
+        {'setting_key': 'app_tagline', 'setting_value': _appTaglineController.text.trim()},
+        {'setting_key': 'support_email', 'setting_value': _supportEmailController.text.trim()},
+        {'setting_key': 'support_phone', 'setting_value': _supportPhoneController.text.trim()},
+        {'setting_key': 'distance_unit', 'setting_value': _distanceUnit},
+        {'setting_key': 'default_language', 'setting_value': _defaultLanguage},
+        {'setting_key': 'google_maps_key', 'setting_value': _googleMapsKeyController.text.trim()},
+        {'setting_key': 'stripe_publishable_key', 'setting_value': _stripeKeyController.text.trim()},
+        {'setting_key': 'logo_url', 'setting_value': _logoUrlController.text.trim()},
+        {'setting_key': 'primary_color', 'setting_value': primaryHex},
+        {'setting_key': 'secondary_color', 'setting_value': secondaryHex},
+        {'setting_key': 'facebook_url', 'setting_value': _facebookController.text.trim()},
+        {'setting_key': 'instagram_url', 'setting_value': _instagramController.text.trim()},
+        {'setting_key': 'twitter_url', 'setting_value': _twitterController.text.trim()},
+        {'setting_key': 'terms_of_service', 'setting_value': json.encode(_termsTranslations)},
+        {'setting_key': 'privacy_policy', 'setting_value': json.encode(_privacyTranslations)},
+        {'setting_key': 'faq_content', 'setting_value': json.encode(_faqs)},
+        {'setting_key': 'enable_onboarding_slider', 'setting_value': _enableOnboardingSlider.toString()},
+        {'setting_key': 'show_demo_credentials', 'setting_value': _showDemoCredentials.toString()},
+        {'setting_key': 'show_role_switcher', 'setting_value': _showRoleSwitcher.toString()},
       ], onConflict: 'setting_key');
       
       ThemeService.instance.updateSettings(
@@ -293,6 +303,23 @@ class _AdminAppConfigWidgetState extends State<AdminAppConfigWidget>
         _buildTextField('App Tagline', _appTaglineController),
         _buildTextField('Support Email', _supportEmailController),
         _buildTextField('Support Phone', _supportPhoneController),
+        const SizedBox(height: 4),
+        _buildToggleRow(
+          icon: Icons.badge_outlined,
+          title: 'Show Demo Credentials',
+          subtitle: 'Display demo login credentials on the login screen',
+          value: _showDemoCredentials,
+          onChanged: (v) => setState(() => _showDemoCredentials = v),
+        ),
+        const SizedBox(height: 8),
+        _buildToggleRow(
+          icon: Icons.swap_horiz_rounded,
+          title: 'Show Role Switcher',
+          subtitle: 'Allow users to switch between Driver/Provider views',
+          value: _showRoleSwitcher,
+          onChanged: (v) => setState(() => _showRoleSwitcher = v),
+        ),
+        const SizedBox(height: 12),
         const SizedBox(height: 12),
         Text('Distance Unit', style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w600)),
         const SizedBox(height: 12),
@@ -616,6 +643,43 @@ class _AdminAppConfigWidgetState extends State<AdminAppConfigWidget>
             },
             style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).primaryColor, foregroundColor: Colors.white),
             child: const Text('Apply'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToggleRow({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceVariant.withAlpha(80),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: AppTheme.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w700)),
+                Text(subtitle, style: GoogleFonts.manrope(fontSize: 11, color: AppTheme.onSurfaceVariant)),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeColor: AppTheme.primary,
           ),
         ],
       ),

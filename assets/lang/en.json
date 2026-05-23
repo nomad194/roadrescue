@@ -232,6 +232,8 @@
     "settings": "Settings",
     "personal_info": "Personal Information",
     "address": "Address",
+    "street_address": "Street Address",
+    "zip_code": "ZIP Code",
     "update_profile": "Update Profile",
     "profile_updated": "Profile updated successfully!",
     "total_requests_label": "Total Requests",

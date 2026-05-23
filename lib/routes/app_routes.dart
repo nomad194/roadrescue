@@ -10,6 +10,7 @@ import '../presentation/payment_screen/payment_screen.dart';
 import '../presentation/post_payment_screen/post_payment_screen.dart';
 import '../presentation/service_history_screen/service_history_screen.dart';
 import '../presentation/faq_tos_screen/faq_tos_screen.dart';
+import '../presentation/provider_reviews_screen/provider_reviews_screen.dart';
 import 'route_guard.dart';
 
 class AppRoutes {
@@ -24,12 +25,21 @@ class AppRoutes {
   static const String postPaymentScreen = '/post-payment-screen';
   static const String serviceHistoryScreen = '/service-history-screen';
   static const String faqTosScreen = '/faq-tos-screen';
+  static const String providerReviewsScreen = '/provider-reviews-screen';
 
   static final Map<String, WidgetBuilder> _builders = {
     initial: (context) => const SignUpLoginScreen(),
     signUpLoginScreen: (context) => const SignUpLoginScreen(),
     serviceRequestScreen: (context) => const ServiceRequestScreen(),
-    jobRequestsScreen: (context) => const JobRequestsScreen(),
+    jobRequestsScreen: (context) {
+      final settings = ModalRoute.of(context)?.settings;
+      final args = settings?.arguments;
+      int initialTab = 0;
+      if (args is Map<String, dynamic>) {
+        initialTab = args['initialTabIndex'] as int? ?? 0;
+      }
+      return JobRequestsScreen(initialTabIndex: initialTab);
+    },
     adminDashboardScreen: (context) => const AdminDashboardScreen(),
     customerProfileScreen: (context) => const CustomerProfileScreen(),
     providerProfileScreen: (context) => const ProviderProfileScreen(),
@@ -37,6 +47,12 @@ class AppRoutes {
     postPaymentScreen: (context) => const PostPaymentScreen(),
     serviceHistoryScreen: (context) => const ServiceHistoryScreen(),
     faqTosScreen: (context) => const FaqTosScreen(),
+    providerReviewsScreen: (context) {
+      final settings = ModalRoute.of(context)?.settings;
+      final args = settings?.arguments;
+      final providerId = args is Map<String, dynamic> ? args['providerId'] as String? : null;
+      return ProviderReviewsScreen(providerId: providerId);
+    },
   };
 
   static Route<dynamic>? onGenerateRoute(RouteSettings settings) {

@@ -7,12 +7,16 @@ class ProviderStatsHeaderWidget extends StatelessWidget {
   final List<dynamic> jobs;
   final String selectedStatus;
   final ValueChanged<String> onStatusChanged;
+  final String providerName;
+  final String locationLabel;
 
   const ProviderStatsHeaderWidget({
     super.key,
     required this.jobs,
     required this.selectedStatus,
     required this.onStatusChanged,
+    this.providerName = '',
+    this.locationLabel = '',
   });
 
   @override
@@ -59,13 +63,13 @@ class ProviderStatsHeaderWidget extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('${l.t('good_morning')}, Carlos', style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white)),
+                    Text('${l.t('good_morning')}${providerName.isNotEmpty ? ', ${providerName.split(' ').first}' : ''}', style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white)),
                     const SizedBox(height: 2),
                     Row(
                       children: [
                         Container(width: 7, height: 7, decoration: const BoxDecoration(color: Color(0xFF4ADE80), shape: BoxShape.circle)),
                         const SizedBox(width: 5),
-                        Text('${l.t('available_at')} Austin, TX', style: GoogleFonts.manrope(fontSize: 11, color: Colors.white.withAlpha(204))),
+                        Text(locationLabel.isNotEmpty ? '${l.t('available_at')} $locationLabel' : l.t('available'), style: GoogleFonts.manrope(fontSize: 11, color: Colors.white.withAlpha(204))),
                       ],
                     ),
                   ],

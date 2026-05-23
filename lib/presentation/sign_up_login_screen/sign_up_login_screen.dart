@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -26,6 +25,8 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
   String _selectedRole = 'customer';
   bool _isLoading = false;
   String? _errorMessage;
+  bool _showDemoCredentials = false;
+  bool _showRoleSwitcher = true;
 
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
@@ -42,11 +43,23 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
       curve: Curves.easeOutCubic,
     );
     _fadeController.forward();
+    _loadAppSettings();
 
     // If already signed in, redirect immediately
     final user = SupabaseService.instance.currentUser;
     if (user != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _redirectByRole());
+    }
+  }
+
+  Future<void> _loadAppSettings() async {
+    final demo = await SupabaseService.instance.getAppSetting('show_demo_credentials');
+    final switcher = await SupabaseService.instance.getAppSetting('show_role_switcher');
+    if (mounted) {
+      setState(() {
+        _showDemoCredentials = demo == 'true';
+        _showRoleSwitcher = switcher != 'false';
+      });
     }
   }
 
@@ -172,10 +185,11 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 24),
-                  RoleToggleWidget(
-                    selectedRole: _selectedRole,
-                    onRoleChanged: _onRoleChanged,
-                  ),
+                  if (_showRoleSwitcher)
+                    RoleToggleWidget(
+                      selectedRole: _selectedRole,
+                      onRoleChanged: _onRoleChanged,
+                    ),
                   const SizedBox(height: 20),
                   if (_errorMessage != null) ...[
                     _buildErrorBanner(_errorMessage!),
@@ -191,7 +205,7 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
                   _buildToggleModeRow(),
                   const SizedBox(height: 20),
                   const SocialLoginWidget(),
-                  if (kDebugMode) ...[
+                  if (_showDemoCredentials) ...[
                     const SizedBox(height: 24),
                     DemoCredentialsWidget(selectedRole: _selectedRole),
                   ],
@@ -234,10 +248,11 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 24),
-                        RoleToggleWidget(
-                          selectedRole: _selectedRole,
-                          onRoleChanged: _onRoleChanged,
-                        ),
+                        if (_showRoleSwitcher)
+                          RoleToggleWidget(
+                            selectedRole: _selectedRole,
+                            onRoleChanged: _onRoleChanged,
+                          ),
                         const SizedBox(height: 20),
                         if (_errorMessage != null) ...[
                           _buildErrorBanner(_errorMessage!),
@@ -253,7 +268,7 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
                         _buildToggleModeRow(),
                         const SizedBox(height: 20),
                         const SocialLoginWidget(),
-                        if (kDebugMode) ...[
+                        if (_showDemoCredentials) ...[
                           const SizedBox(height: 24),
                           DemoCredentialsWidget(selectedRole: _selectedRole),
                         ],
