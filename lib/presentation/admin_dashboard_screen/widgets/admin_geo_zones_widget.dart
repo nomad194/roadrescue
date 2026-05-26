@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../config/app_constants.dart';
 import '../../../theme/app_theme.dart';
 import '../../../services/localization_service.dart';
@@ -19,8 +18,6 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
   List<Map<String, dynamic>> _geoZones = [];
   bool _isLoading = true;
   bool _isSaving = false;
-  String? _selectedStateId;
-  String? _selectedCityId;
 
   @override
   void initState() {
@@ -92,7 +89,7 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: selectedStateId,
+                  initialValue: selectedStateId,
                   decoration: InputDecoration(
                     labelText: 'State',
                     border: OutlineInputBorder(
@@ -113,7 +110,7 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
                 const SizedBox(height: 12),
                 if (selectedStateId != null)
                   DropdownButtonFormField<String>(
-                    value: selectedCityId,
+                    initialValue: selectedCityId,
                     decoration: InputDecoration(
                       labelText: 'City',
                       border: OutlineInputBorder(
@@ -459,7 +456,7 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: _geoZones.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            separatorBuilder: (_, _) => const SizedBox(height: 8),
             itemBuilder: (ctx, index) {
               final zone = _geoZones[index];
               final stateName = zone['states']?['name'] ?? 'Unknown';
@@ -522,7 +519,7 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
                     Switch(
                       value: isActive,
                       onChanged: _isSaving ? null : (v) => _toggleGeoZone(zone['id'], isActive),
-                      activeColor: AppTheme.primary,
+                      activeThumbColor: AppTheme.primary,
                     ),
                     IconButton(
                       onPressed: _isSaving ? null : () => _deleteGeoZone(zone['id']),

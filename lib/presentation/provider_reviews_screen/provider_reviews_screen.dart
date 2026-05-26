@@ -107,7 +107,7 @@ class _ProviderReviewsScreenState extends State<ProviderReviewsScreen> {
     final isOwnProfile = widget.providerId == null || widget.providerId == currentUserId;
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: AppTheme.surface,
         elevation: 0,

@@ -4,6 +4,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
+import '../services/localization_service.dart';
 
 class ServiceAreaMapWidget extends StatefulWidget {
   final double latitude;
@@ -46,12 +47,12 @@ class _ServiceAreaMapWidgetState extends State<ServiceAreaMapWidget> {
   @override
   void didUpdateWidget(ServiceAreaMapWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Update marker if external lat/lng changed significantly
     if ((widget.latitude - _markerPosition.latitude).abs() > 0.001 ||
         (widget.longitude - _markerPosition.longitude).abs() > 0.001) {
       setState(() {
         _markerPosition = LatLng(widget.latitude, widget.longitude);
       });
+      _mapController.move(_markerPosition, _mapController.camera.zoom);
     }
   }
 
@@ -59,7 +60,6 @@ class _ServiceAreaMapWidgetState extends State<ServiceAreaMapWidget> {
     setState(() {
       _markerPosition = newPosition;
     });
-    // Notify parent of new location
     if (widget.onLocationChanged != null) {
       widget.onLocationChanged!(newPosition.latitude, newPosition.longitude);
     }
@@ -67,13 +67,14 @@ class _ServiceAreaMapWidgetState extends State<ServiceAreaMapWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final l = LocalizationService.instance;
     return Column(
       children: [
         // Map Instructions
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: AppTheme.primaryContainer.withOpacity(0.5),
+            color: AppTheme.primaryContainer.withValues(alpha: 0.5),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Row(
@@ -83,8 +84,8 @@ class _ServiceAreaMapWidgetState extends State<ServiceAreaMapWidget> {
               Expanded(
                 child: Text(
                   widget.allowMarkerMove 
-                    ? 'Pan: Drag map | Zoom: Pinch | Move pin: Drag marker'
-                    : 'Pan: Drag map | Zoom: Pinch',
+                    ? l.t('map_pan_zoom_move')
+                    : l.t('map_pan_zoom'),
                   style: GoogleFonts.manrope(
                     fontSize: 12,
                     color: AppTheme.primary,
@@ -107,10 +108,13 @@ class _ServiceAreaMapWidgetState extends State<ServiceAreaMapWidget> {
           child: FlutterMap(
             mapController: _mapController,
             options: MapOptions(
-              center: _markerPosition,
-              zoom: 12,
-              interactiveFlags: InteractiveFlag.pinchZoom | InteractiveFlag.drag,
-              onTap: widget.allowMarkerMove ? (_, point) => _updateMarkerPosition(point) : null,
+              initialCenter: _markerPosition,
+              initialZoom: 12,
+              minZoom: 3,
+              maxZoom: 18,
+              onTap: widget.allowMarkerMove 
+                ? (_, point) => _updateMarkerPosition(point) 
+                : null,
             ),
             children: [
               // OpenStreetMap Tile Layer
@@ -118,29 +122,20 @@ class _ServiceAreaMapWidgetState extends State<ServiceAreaMapWidget> {
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.roadrescue.app',
               ),
-              // Service Range Circle (centered on marker)
+              // Service Range Circle
               CircleLayer(
                 circles: [
                   CircleMarker(
                     point: _markerPosition,
                     radius: _milesToMeters(widget.serviceRange),
-                    color: AppTheme.primary.withOpacity(0.15),
+                    useRadiusInMeter: true,
+                    color: AppTheme.primary.withAlpha(30),
                     borderColor: AppTheme.primary,
                     borderStrokeWidth: 2,
-                    useRadiusInMeter: true,
-                  ),
-                  // Inner circle for visual effect
-                  CircleMarker(
-                    point: _markerPosition,
-                    radius: _milesToMeters(widget.serviceRange * 0.5),
-                    color: AppTheme.primary.withOpacity(0.08),
-                    borderColor: AppTheme.primary.withOpacity(0.5),
-                    borderStrokeWidth: 1,
-                    useRadiusInMeter: true,
                   ),
                 ],
               ),
-              // Provider Location Marker (draggable)
+              // Provider Location Marker
               MarkerLayer(
                 markers: [
                   Marker(
@@ -149,20 +144,17 @@ class _ServiceAreaMapWidgetState extends State<ServiceAreaMapWidget> {
                     height: widget.allowMarkerMove ? 50 : 40,
                     child: GestureDetector(
                       onPanUpdate: widget.allowMarkerMove ? (details) {
-                        // Calculate new position based on drag
-                        final pixelDelta = details.delta;
                         final zoom = _mapController.camera.zoom;
-                        final scale = 60000 / (1 << zoom.toInt()); // Approximate meters per pixel
-                        
-                        final latDelta = -pixelDelta.dy * scale / 111320;
-                        final lngDelta = pixelDelta.dx * scale / (111320 * cos(_markerPosition.latitude * pi / 180).abs());
-                        
+                        final scale = 60000 / (1 << zoom.toInt());
+                        final latDelta = -details.delta.dy * scale / 111320;
+                        final lngDelta = details.delta.dx * scale / 
+                          (111320 * cos(_markerPosition.latitude * pi / 180).abs());
                         final newPosition = LatLng(
                           _markerPosition.latitude + latDelta,
                           _markerPosition.longitude + lngDelta,
                         );
-                        
                         _updateMarkerPosition(newPosition);
+                        _mapController.move(newPosition, zoom);
                       } : null,
                       child: Container(
                         decoration: BoxDecoration(
@@ -171,7 +163,7 @@ class _ServiceAreaMapWidgetState extends State<ServiceAreaMapWidget> {
                           border: Border.all(color: Colors.white, width: 3),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.2),
+                              color: Colors.black.withAlpha(50),
                               blurRadius: 6,
                               offset: const Offset(0, 2),
                             ),
@@ -190,7 +182,7 @@ class _ServiceAreaMapWidgetState extends State<ServiceAreaMapWidget> {
                                 width: 20,
                                 height: 3,
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.6),
+                                  color: Colors.white.withAlpha(150),
                                   borderRadius: BorderRadius.circular(2),
                                 ),
                               ),
@@ -208,7 +200,7 @@ class _ServiceAreaMapWidgetState extends State<ServiceAreaMapWidget> {
         if (widget.allowMarkerMove && widget.onLocationChanged != null) ...[
           const SizedBox(height: 8),
           Text(
-            'Tap anywhere on map or drag marker to adjust location',
+            l.t('map_tap_drag_hint'),
             style: GoogleFonts.manrope(
               fontSize: 11,
               color: AppTheme.onSurfaceVariant,
@@ -219,7 +211,6 @@ class _ServiceAreaMapWidgetState extends State<ServiceAreaMapWidget> {
         
         if (widget.showSlider && widget.onRangeChanged != null) ...[
           const SizedBox(height: 16),
-          // Range Display
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -241,18 +232,16 @@ class _ServiceAreaMapWidgetState extends State<ServiceAreaMapWidget> {
             ],
           ),
           const SizedBox(height: 12),
-          // Range Slider
           Slider(
             value: widget.serviceRange.clamp(5, 200),
             min: 5,
             max: 200,
             divisions: 39,
             activeColor: AppTheme.primary,
-            inactiveColor: AppTheme.primary.withOpacity(0.2),
+            inactiveColor: AppTheme.primary.withValues(alpha: 0.2),
             onChanged: widget.onRangeChanged,
             onChangeEnd: widget.onRangeChangeEnd,
           ),
-          // Range Labels
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
@@ -284,7 +273,7 @@ class _ServiceAreaMapWidgetState extends State<ServiceAreaMapWidget> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Drag slider to adjust your service area radius (${widget.distanceUnit == 'km' ? 'km' : 'miles'})',
+            l.t('map_slider_hint').replaceAll('{unit}', widget.distanceUnit == 'km' ? 'km' : 'miles'),
             style: GoogleFonts.manrope(
               fontSize: 12,
               color: AppTheme.onSurfaceVariant,

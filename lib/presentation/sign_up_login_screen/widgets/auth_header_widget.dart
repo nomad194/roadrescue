@@ -86,7 +86,7 @@ class _AuthHeaderWidgetState extends State<AuthHeaderWidget>
                       child: Image.network(
                         themeService.logoUrl,
                         fit: BoxFit.contain,
-                        errorBuilder: (_, __, ___) => const Icon(
+                        errorBuilder: (_, _, _) => const Icon(
                           Icons.local_shipping_rounded,
                           size: 38,
                           color: Colors.white,
@@ -105,7 +105,9 @@ class _AuthHeaderWidgetState extends State<AuthHeaderWidget>
           FadeTransition(
             opacity: _opacityAnimation,
             child: Text(
-              themeService.appName.isNotEmpty ? themeService.appName : LocalizationService.instance.t('app_name'),
+              themeService.getLocalizedAppName(LocalizationService.instance.currentLanguageCode).isNotEmpty
+                  ? themeService.getLocalizedAppName(LocalizationService.instance.currentLanguageCode)
+                  : LocalizationService.instance.t('app_name'),
               style: GoogleFonts.manrope(
                 fontSize: 26,
                 fontWeight: FontWeight.w800,
@@ -118,9 +120,11 @@ class _AuthHeaderWidgetState extends State<AuthHeaderWidget>
           FadeTransition(
             opacity: _opacityAnimation,
             child: Text(
-              themeService.appTagline.isNotEmpty ? themeService.appTagline : (widget.isLogin
-                  ? LocalizationService.instance.t('welcome_back_subtitle')
-                  : LocalizationService.instance.t('join_subtitle')),
+              themeService.getLocalizedTagline(LocalizationService.instance.currentLanguageCode).isNotEmpty
+                  ? themeService.getLocalizedTagline(LocalizationService.instance.currentLanguageCode)
+                  : (widget.isLogin
+                      ? LocalizationService.instance.t('welcome_back_subtitle')
+                      : LocalizationService.instance.t('join_subtitle')),
               style: GoogleFonts.manrope(
                 fontSize: 13,
                 color: Colors.white.withAlpha(204),

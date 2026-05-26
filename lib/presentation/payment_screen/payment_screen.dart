@@ -237,7 +237,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final serviceType = _args['serviceType'] as String? ?? 'Service';
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: AppTheme.surface,
         elevation: 0,

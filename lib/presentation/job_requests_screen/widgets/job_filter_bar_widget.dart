@@ -21,12 +21,12 @@ class JobFilterBarWidget extends StatelessWidget {
     final l = LocalizationService.instance;
     return [
       {'id': 'all', 'label': l.t('all')},
-      {'id': 'towing', 'label': 'Towing'},
-      {'id': 'flat_tire', 'label': 'Flat Tire'},
-      {'id': 'lockout', 'label': 'Lockout'},
-      {'id': 'fuel_delivery', 'label': 'Fuel'},
-      {'id': 'jump_start', 'label': 'Jump Start'},
-      {'id': 'battery', 'label': 'Battery'},
+      {'id': 'towing', 'label': l.t('service_towing')},
+      {'id': 'flat_tire', 'label': l.t('service_flat_tire')},
+      {'id': 'lockout', 'label': l.t('service_lockout')},
+      {'id': 'fuel_delivery', 'label': l.t('service_fuel')},
+      {'id': 'jump_start', 'label': l.t('service_jump_start')},
+      {'id': 'battery', 'label': l.t('service_battery')},
     ];
   }
 
@@ -34,10 +34,10 @@ class JobFilterBarWidget extends StatelessWidget {
     final l = LocalizationService.instance;
     return [
       {'id': 'all', 'label': l.t('all')},
-      {'id': 'new', 'label': 'New'},
-      {'id': 'quoted', 'label': 'Quoted'},
-      {'id': 'accepted', 'label': 'Accepted'},
-      {'id': 'completed', 'label': 'Completed'},
+      {'id': 'new', 'label': l.t('tab_new')},
+      {'id': 'quoted', 'label': l.t('tab_quoted')},
+      {'id': 'accepted', 'label': l.t('status_accepted')},
+      {'id': 'completed', 'label': l.t('status_done')},
     ];
   }
 

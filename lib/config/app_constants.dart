@@ -1,6 +1,64 @@
+import 'dart:convert';
+import '../services/localization_service.dart';
+
 /// Shared application constants that should eventually come from database
 /// but are centralized here for maintainability
 class AppConstants {
+  // Mapping of vehicle id → localization key
+  static const Map<String, String> vehicleSizeLabelKeys = {
+    'motorcycle': 'vehicle_size_motorcycle',
+    'sedan': 'vehicle_size_sedan',
+    'suv': 'vehicle_size_suv',
+    'pickup': 'vehicle_size_pickup',
+    'van': 'vehicle_size_van',
+    'large_truck': 'vehicle_size_large_truck',
+  };
+
+  /// Admin-entered vehicle name translations loaded from app_settings.
+  /// Shape: { "motorcycle": { "en": "Motorcycle", "es": "Motocicleta" }, ... }
+  static Map<String, Map<String, String>> _vehicleSizeTranslations = {};
+
+  /// Load admin-entered vehicle size translations from a raw JSON string.
+  /// Called from main.dart after fetching from DB.
+  static void setVehicleSizeTranslations(String? raw) {
+    if (raw == null || raw.isEmpty) return;
+    try {
+      final decoded = Map<String, dynamic>.from(json.decode(raw) as Map);
+      _vehicleSizeTranslations = {};
+      for (final entry in decoded.entries) {
+        _vehicleSizeTranslations[entry.key] = Map<String, String>.from(
+          (entry.value as Map).map((k, v) => MapEntry(k.toString(), v.toString())),
+        );
+      }
+    } catch (_) {}
+  }
+
+  /// Get the localized label for a vehicle size id.
+  /// Priority: 1) admin DB translations, 2) language file keys, 3) hardcoded English.
+  static String getVehicleSizeLabel(String vehicleId) {
+    // 1. Check admin-entered DB translations first
+    final lang = LocalizationService.instance.currentLanguageCode;
+    final dbTranslations = _vehicleSizeTranslations[vehicleId];
+    if (dbTranslations != null) {
+      final dbLabel = dbTranslations[lang] ?? dbTranslations['en'];
+      if (dbLabel != null && dbLabel.isNotEmpty) return dbLabel;
+    }
+
+    // 2. Check language file keys
+    final key = vehicleSizeLabelKeys[vehicleId];
+    if (key != null) {
+      final translated = LocalizationService.instance.t(key);
+      if (translated != key) return translated;
+    }
+
+    // 3. Fallback to hardcoded label
+    final option = vehicleSizeOptions.firstWhere(
+      (v) => v['id'] == vehicleId,
+      orElse: () => {'label': vehicleId},
+    );
+    return option['label'] as String;
+  }
+
   // Vehicle size options - used across customer, provider, and admin screens
   // These should match the database service_categories.vehicle_sizes values
   static const List<Map<String, dynamic>> vehicleSizeOptions = [

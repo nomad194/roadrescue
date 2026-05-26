@@ -1,9 +1,12 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../../config/app_constants.dart';
 import '../../../theme/app_theme.dart';
 import '../../../services/localization_service.dart';
+import '../../../services/supabase_service.dart';
 import '../../../widgets/multilingual_tabs_widget.dart';
 
 class AdminCategoriesWidget extends StatefulWidget {
@@ -54,11 +57,38 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
     );
   }
 
+  /// Pick and upload vehicle size image
+  Future<String?> _pickAndUploadVehicleSizeImage(Map<String, dynamic> category, String vehicleSizeId) async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(source: ImageSource.gallery, maxWidth: 512, maxHeight: 512);
+      if (picked == null) return null;
+
+      final fileName = '${category['id']}_${vehicleSizeId}_${DateTime.now().millisecondsSinceEpoch}';
+      final url = await SupabaseService.instance.uploadAppAsset(
+        'app-assets',
+        'vehicle_sizes/$fileName',
+        picked.path,
+      );
+      return url;
+    } catch (e) {
+      debugPrint('Error uploading vehicle size image: $e');
+      return null;
+    }
+  }
+
   void _showVehicleSizeDialog(Map<String, dynamic> category) {
     final l = LocalizationService.instance;
     final List<String> selected = List<String>.from(
       category['vehicle_sizes'] ?? [],
     );
+    // Load existing vehicle size images from category
+    final Map<String, dynamic> existingImages = (category['vehicle_size_images'] as Map<String, dynamic>?) ?? {};
+    final Map<String, String?> vehicleImages = {};
+    for (final vehicle in _vehicleSizeOptions) {
+      vehicleImages[vehicle['id'] as String] = existingImages[vehicle['id']] as String?;
+    }
+
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -94,7 +124,7 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Toggle which vehicle sizes are available for this service. These will appear as options in the customer app.',
+                  'Toggle vehicle sizes and upload custom images. Tap the image area to upload/change, X to remove.',
                   style: GoogleFonts.manrope(
                     fontSize: 12,
                     color: AppTheme.onSurfaceVariant,
@@ -109,19 +139,22 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
                     crossAxisCount: 2,
                     crossAxisSpacing: 10,
                     mainAxisSpacing: 10,
-                    childAspectRatio: 1.4,
+                    childAspectRatio: 1.2,
                   ),
                   itemCount: _vehicleSizeOptions.length,
                   itemBuilder: (context, index) {
                     final vehicle = _vehicleSizeOptions[index];
-                    final isEnabled = selected.contains(vehicle['id']);
+                    final vehicleId = vehicle['id'] as String;
+                    final isEnabled = selected.contains(vehicleId);
+                    final imageUrl = vehicleImages[vehicleId];
+
                     return GestureDetector(
                       onTap: () {
                         setDialogState(() {
                           if (isEnabled) {
-                            selected.remove(vehicle['id']);
+                            selected.remove(vehicleId);
                           } else {
-                            selected.add(vehicle['id'] as String);
+                            selected.add(vehicleId);
                           }
                         });
                       },
@@ -142,13 +175,72 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text(
-                              vehicle['emoji'] as String,
-                              style: const TextStyle(fontSize: 24),
+                            // Image or Emoji display
+                            Stack(
+                              alignment: Alignment.topRight,
+                              children: [
+                                GestureDetector(
+                                  onTap: isEnabled
+                                      ? () async {
+                                          final url = await _pickAndUploadVehicleSizeImage(category, vehicleId);
+                                          if (url != null) {
+                                            setDialogState(() {
+                                              vehicleImages[vehicleId] = url;
+                                            });
+                                          }
+                                        }
+                                      : null,
+                                  child: Container(
+                                    width: 60,
+                                    height: 60,
+                                    decoration: BoxDecoration(
+                                      color: isEnabled ? Colors.white.withAlpha(100) : AppTheme.surfaceVariant,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: isEnabled ? AppTheme.primary.withAlpha(100) : AppTheme.outline,
+                                      ),
+                                    ),
+                                    child: imageUrl != null && imageUrl.isNotEmpty
+                                        ? ClipRRect(
+                                            borderRadius: BorderRadius.circular(8),
+                                            child: Image.network(
+                                              imageUrl,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (context, error, stackTrace) =>
+                                                  Text(vehicle['emoji'] as String, style: const TextStyle(fontSize: 28)),
+                                            ),
+                                          )
+                                        : Center(
+                                            child: Text(
+                                              vehicle['emoji'] as String,
+                                              style: const TextStyle(fontSize: 28),
+                                            ),
+                                          ),
+                                  ),
+                                ),
+                                // Remove image button (only show if image exists)
+                                if (imageUrl != null && imageUrl.isNotEmpty && isEnabled)
+                                  GestureDetector(
+                                    onTap: () {
+                                      setDialogState(() {
+                                        vehicleImages[vehicleId] = null;
+                                      });
+                                    },
+                                    child: Container(
+                                      width: 20,
+                                      height: 20,
+                                      decoration: const BoxDecoration(
+                                        color: AppTheme.error,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.close, size: 14, color: Colors.white),
+                                    ),
+                                  ),
+                              ],
                             ),
-                            const SizedBox(height: 4),
+                            const SizedBox(height: 8),
                             Text(
-                              vehicle['label'] as String,
+                              AppConstants.getVehicleSizeLabel(vehicle['id'] as String),
                               style: GoogleFonts.manrope(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
@@ -160,6 +252,31 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
+                            const SizedBox(height: 4),
+                            // Upload button (only for enabled)
+                            if (isEnabled)
+                              TextButton.icon(
+                                onPressed: () async {
+                                  final url = await _pickAndUploadVehicleSizeImage(category, vehicleId);
+                                  if (url != null) {
+                                    setDialogState(() {
+                                      vehicleImages[vehicleId] = url;
+                                    });
+                                  }
+                                },
+                                icon: const Icon(Icons.upload, size: 14),
+                                label: Text(
+                                  imageUrl != null && imageUrl.isNotEmpty ? 'Change' : 'Upload',
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                              )
+                            else
+                              const SizedBox(height: 28),
                             if (isEnabled) ...[
                               const SizedBox(height: 2),
                               const Icon(
@@ -188,9 +305,20 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
             ElevatedButton(
               onPressed: () async {
                 try {
+                  // Filter out null/empty values from images map
+                  final Map<String, dynamic> imagesToSave = {};
+                  vehicleImages.forEach((key, value) {
+                    if (value != null && value.isNotEmpty) {
+                      imagesToSave[key] = value;
+                    }
+                  });
+
                   await Supabase.instance.client
                       .from('service_categories')
-                      .update({'vehicle_sizes': selected})
+                      .update({
+                        'vehicle_sizes': selected,
+                        'vehicle_size_images': imagesToSave,
+                      })
                       .eq('id', category['id']);
 
                   if (mounted) {
@@ -540,6 +668,199 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
     );
   }
 
+  void _showEditVehicleNamesDialog() async {
+    final l = LocalizationService.instance;
+    final langCodes = LocalizationService.supportedLanguages.keys.toList();
+
+    // Load existing translations from app_settings
+    final existing = await SupabaseService.instance.getAppSetting('vehicle_size_translations');
+    Map<String, Map<String, String>> allTranslations = {};
+
+    if (existing != null && existing.isNotEmpty) {
+      try {
+        final decoded = Map<String, dynamic>.from(json.decode(existing) as Map);
+        for (final entry in decoded.entries) {
+          allTranslations[entry.key] = Map<String, String>.from(
+            (entry.value as Map).map((k, v) => MapEntry(k.toString(), v.toString())),
+          );
+        }
+      } catch (_) {}
+    }
+
+    // Pre-fill from language files if empty
+    for (final vehicle in _vehicleSizeOptions) {
+      final id = vehicle['id'] as String;
+      if (!allTranslations.containsKey(id)) {
+        allTranslations[id] = {};
+      }
+      for (final lang in langCodes) {
+        if ((allTranslations[id]![lang] ?? '').isEmpty) {
+          // Pull default from language file key
+          final key = AppConstants.vehicleSizeLabelKeys[id];
+          if (key != null && lang == l.currentLanguageCode) {
+            final translated = l.t(key);
+            if (translated != key) {
+              allTranslations[id]![lang] = translated;
+            }
+          }
+          // Also set English fallback from hardcoded label
+          if (lang == 'en' && (allTranslations[id]!['en'] ?? '').isEmpty) {
+            allTranslations[id]!['en'] = vehicle['label'] as String;
+          }
+        }
+      }
+    }
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: AppTheme.surface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.translate, size: 18, color: AppTheme.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  l.t('vehicle_name_translations'),
+                  style: GoogleFonts.manrope(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                    color: AppTheme.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: _vehicleSizeOptions.map((vehicle) {
+                  final id = vehicle['id'] as String;
+                  final emoji = vehicle['emoji'] as String;
+                  final currentTranslations = allTranslations[id] ?? {};
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(emoji, style: const TextStyle(fontSize: 20)),
+                          const SizedBox(width: 8),
+                          Text(
+                            vehicle['label'] as String,
+                            style: GoogleFonts.manrope(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.onSurface,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      MultilingualTabsWidget(
+                        initialTranslations: currentTranslations,
+                        fieldLabel: vehicle['label'] as String,
+                        hint: vehicle['label'] as String,
+                        maxLines: 1,
+                        onChanged: (updated) {
+                          allTranslations[id] = updated;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(
+                l.t('cancel'),
+                style: GoogleFonts.manrope(color: AppTheme.onSurfaceVariant),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                try {
+                  // Save to app_settings as JSON
+                  final Map<String, dynamic> toSave = {};
+                  for (final entry in allTranslations.entries) {
+                    final nonEmpty = Map<String, String>.fromEntries(
+                      entry.value.entries.where((e) => e.value.isNotEmpty),
+                    );
+                    if (nonEmpty.isNotEmpty) {
+                      toSave[entry.key] = nonEmpty;
+                    }
+                  }
+
+                  await SupabaseService.instance.updateAppSetting(
+                    'vehicle_size_translations',
+                    json.encode(toSave),
+                  );
+
+                  // Refresh the in-memory cache so labels update immediately
+                  AppConstants.setVehicleSizeTranslations(json.encode(toSave));
+
+                  if (mounted) {
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          l.t('vehicle_names_saved'),
+                          style: GoogleFonts.manrope(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        backgroundColor: AppTheme.success,
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        margin: const EdgeInsets.all(16),
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  debugPrint('Save vehicle names error: $e');
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error: $e'),
+                        backgroundColor: AppTheme.error,
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                foregroundColor: Colors.white,
+                minimumSize: const Size(80, 40),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: Text(
+                l.t('save'),
+                style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+
   @override
   Widget build(BuildContext context) {
     final l = LocalizationService.instance;
@@ -570,6 +891,27 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
                 ],
               ),
             ),
+            OutlinedButton.icon(
+              onPressed: _showEditVehicleNamesDialog,
+              icon: const Icon(Icons.directions_car, size: 16),
+              label: Text(
+                l.t('edit_vehicle_names'),
+                style: GoogleFonts.manrope(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.primary,
+                side: const BorderSide(color: AppTheme.primary),
+                minimumSize: const Size(80, 36),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
             ElevatedButton.icon(
               onPressed: () => _showAddEditDialog(),
               icon: const Icon(Icons.add, size: 18),
@@ -607,7 +949,7 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: _categories.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            separatorBuilder: (_, _) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
               final cat = _categories[index];
               final vehicleSizes =
@@ -791,7 +1133,7 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
                                     borderRadius: BorderRadius.circular(6),
                                   ),
                                   child: Text(
-                                    '${vehicle['emoji']} ${vehicle['label']}',
+                                    '${vehicle['emoji']} ${AppConstants.getVehicleSizeLabel(vehicle['id'] as String)}',
                                     style: GoogleFonts.manrope(
                                       fontSize: 10,
                                       fontWeight: FontWeight.w600,

@@ -18,16 +18,27 @@ class _AdminPaymentMethodsWidgetState extends State<AdminPaymentMethodsWidget> {
   bool _isSaving = false;
   RealtimeChannel? _subscription;
 
+  // Provider payment methods
+  List<Map<String, dynamic>> _providerPaymentMethods = [];
+  final Map<String, TextEditingController> _instructionsControllers = {};
+  bool _isLoadingProviderMethods = true;
+  bool _isSavingProviderMethods = false;
+
   @override
   void initState() {
     super.initState();
     _loadPaymentMethods();
+    _loadProviderPaymentMethods();
     _subscribeToChanges();
   }
 
   @override
   void dispose() {
     _subscription?.unsubscribe();
+    // Dispose text controllers
+    for (final controller in _instructionsControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -111,6 +122,166 @@ class _AdminPaymentMethodsWidgetState extends State<AdminPaymentMethodsWidget> {
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  // ─── PROVIDER PAYMENT METHODS ──────────────────────────────────────────
+
+  Future<void> _loadProviderPaymentMethods() async {
+    setState(() => _isLoadingProviderMethods = true);
+    try {
+      final methods = await SupabaseService.instance.getAllProviderPaymentMethods();
+      if (mounted) {
+        setState(() {
+          _providerPaymentMethods = methods;
+          // Initialize controllers for each method
+          for (final method in methods) {
+            final id = method['id'] as String;
+            final instructions = method['instructions'] as String? ?? '';
+            _instructionsControllers[id] = TextEditingController(text: instructions);
+          }
+          _isLoadingProviderMethods = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading provider payment methods: $e');
+      if (mounted) setState(() => _isLoadingProviderMethods = false);
+    }
+  }
+
+  Future<void> _saveProviderPaymentMethod(String id, bool isEnabled) async {
+    setState(() => _isSavingProviderMethods = true);
+    try {
+      final instructions = _instructionsControllers[id]?.text ?? '';
+      await SupabaseService.instance.updateProviderPaymentMethod(
+        id,
+        isEnabled: isEnabled,
+        instructions: instructions,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Payment method updated',
+              style: GoogleFonts.manrope(fontSize: 13),
+            ),
+            backgroundColor: AppTheme.success,
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
+      await _loadProviderPaymentMethods();
+    } catch (e) {
+      debugPrint('Error saving provider payment method: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Failed to save: $e',
+              style: GoogleFonts.manrope(fontSize: 13),
+            ),
+            backgroundColor: AppTheme.error,
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSavingProviderMethods = false);
+    }
+  }
+
+  void _showAddProviderMethodDialog() {
+    final existingTypes = _providerPaymentMethods.map((m) => m['method_type'] as String).toSet();
+    final availableTypes = ['bank_transfer', 'cash_deposit', 'online']
+        .where((t) => !existingTypes.contains(t))
+        .toList();
+
+    if (availableTypes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('All payment method types already exist', style: GoogleFonts.manrope(fontSize: 13)),
+          backgroundColor: AppTheme.warning,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Add Payment Method',
+          style: GoogleFonts.manrope(fontWeight: FontWeight.w700, fontSize: 18),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: availableTypes.map((type) {
+            String label;
+            IconData icon;
+            switch (type) {
+              case 'bank_transfer':
+                label = 'Bank Transfer';
+                icon = Icons.account_balance;
+                break;
+              case 'cash_deposit':
+                label = 'Cash Deposit';
+                icon = Icons.payments_outlined;
+                break;
+              case 'online':
+                label = 'Online Payment';
+                icon = Icons.credit_card;
+                break;
+              default:
+                label = type;
+                icon = Icons.payment;
+            }
+            return ListTile(
+              leading: Icon(icon, color: AppTheme.primary),
+              title: Text(label, style: GoogleFonts.manrope(fontWeight: FontWeight.w600)),
+              onTap: () async {
+                Navigator.pop(ctx);
+                try {
+                  await Supabase.instance.client.from('provider_payment_methods').insert({
+                    'method_type': type,
+                    'is_enabled': true,
+                    'instructions': '',
+                    'created_at': DateTime.now().toIso8601String(),
+                    'updated_at': DateTime.now().toIso8601String(),
+                  });
+                  await _loadProviderPaymentMethods();
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('$label added', style: GoogleFonts.manrope(fontSize: 13)),
+                        backgroundColor: AppTheme.success,
+                        behavior: SnackBarBehavior.floating,
+                        margin: const EdgeInsets.all(16),
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error: $e', style: GoogleFonts.manrope(fontSize: 13)),
+                        backgroundColor: AppTheme.error,
+                        behavior: SnackBarBehavior.floating,
+                        margin: const EdgeInsets.all(16),
+                      ),
+                    );
+                  }
+                }
+              },
+            );
+          }).toList(),
+        ),
+      ),
+    );
   }
 
   void _showEditDialog(Map<String, dynamic> method) {
@@ -340,14 +511,17 @@ class _AdminPaymentMethodsWidgetState extends State<AdminPaymentMethodsWidget> {
                     children: [
                       Row(
                         children: [
-                          Text(
-                            name,
-                            style: GoogleFonts.manrope(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: isEnabled
-                                  ? AppTheme.onSurface
-                                  : AppTheme.onSurface.withAlpha(128),
+                          Flexible(
+                            child: Text(
+                              name,
+                              style: GoogleFonts.manrope(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: isEnabled
+                                    ? AppTheme.onSurface
+                                    : AppTheme.onSurface.withAlpha(128),
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           if (isDefault) ...[
@@ -412,6 +586,203 @@ class _AdminPaymentMethodsWidgetState extends State<AdminPaymentMethodsWidget> {
             ),
           );
         }),
+        const SizedBox(height: 32),
+        // ─── PROVIDER PAYMENT METHODS SECTION ──────────────────────────────────
+        Text(
+          'Provider Plan Payment Methods',
+          style: GoogleFonts.manrope(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: AppTheme.onSurface,
+          ),
+        ),
+        Text(
+          'Configure payment options for provider subscription plans',
+          style: GoogleFonts.manrope(
+            fontSize: 13,
+            color: AppTheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: _showAddProviderMethodDialog,
+            icon: const Icon(Icons.add, size: 18),
+            label: Text(
+              'Add Method',
+              style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        if (_isLoadingProviderMethods)
+          const Center(child: CircularProgressIndicator())
+        else
+          ..._providerPaymentMethods.map((method) {
+            final id = method['id'] as String;
+            final methodType = method['method_type'] as String;
+            final isEnabled = method['is_enabled'] as bool? ?? true;
+            String title;
+            IconData icon;
+            switch (methodType) {
+              case 'bank_transfer':
+                title = 'Bank Transfer';
+                icon = Icons.account_balance;
+                break;
+              case 'cash_deposit':
+                title = 'Cash Deposit';
+                icon = Icons.payments_outlined;
+                break;
+              case 'online':
+                title = 'Online Payment';
+                icon = Icons.credit_card;
+                break;
+              default:
+                title = methodType;
+                icon = Icons.payment;
+            }
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppTheme.surface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: isEnabled ? AppTheme.outlineVariant : AppTheme.outline.withAlpha(50),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryContainer,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(
+                          icon,
+                          size: 24,
+                          color: AppTheme.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: GoogleFonts.manrope(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: isEnabled
+                                    ? AppTheme.onSurface
+                                    : AppTheme.onSurface.withAlpha(128),
+                              ),
+                            ),
+                            Text(
+                              'Manual payment method for providers',
+                              style: GoogleFonts.manrope(
+                                fontSize: 12,
+                                color: AppTheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch(
+                        value: isEnabled,
+                        onChanged: _isSavingProviderMethods
+                            ? null
+                            : (v) => _saveProviderPaymentMethod(id, v),
+                        activeThumbColor: AppTheme.primary,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Instructions shown to providers:',
+                    style: GoogleFonts.manrope(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _instructionsControllers[id],
+                    decoration: InputDecoration(
+                      hintText: 'Enter payment instructions (bank details, deposit location, etc.)',
+                      filled: true,
+                      fillColor: AppTheme.surfaceVariant,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      contentPadding: const EdgeInsets.all(12),
+                    ),
+                    style: GoogleFonts.manrope(fontSize: 13),
+                    maxLines: 5,
+                    enabled: !_isSavingProviderMethods,
+                  ),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: ElevatedButton.icon(
+                      onPressed: _isSavingProviderMethods
+                          ? null
+                          : () => _saveProviderPaymentMethod(id, isEnabled),
+                      icon: _isSavingProviderMethods
+                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.save_outlined, size: 18),
+                      label: Text(
+                        'Save Instructions',
+                        style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primary,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppTheme.primaryContainer.withAlpha(100),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: AppTheme.primary.withAlpha(50),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.info_outline,
+                size: 18,
+                color: AppTheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Online payment uses the Stripe gateway configured above. Providers will see these instructions when choosing manual payment methods during plan purchase.',
+                  style: GoogleFonts.manrope(
+                    fontSize: 12,
+                    color: AppTheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
         const SizedBox(height: 24),
         Container(
           padding: const EdgeInsets.all(16),

@@ -10,6 +10,7 @@ import '../../widgets/language_selector_widget.dart';
 import '../../widgets/service_area_map_widget.dart';
 import '../../services/localization_service.dart';
 import '../../services/supabase_service.dart';
+import './widgets/provider_plan_purchase_dialog.dart';
 
 class ProviderProfileScreen extends StatefulWidget {
   const ProviderProfileScreen({super.key});
@@ -24,6 +25,11 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
   bool _isAvailable = true;
   bool _isLoadingGeo = true;
   bool _isUploadingAvatar = false;
+
+  // Subscription
+  Map<String, dynamic>? _activeSubscription;
+  bool _isLoadingSubscription = true;
+  String _subscriptionStatus = 'inactive'; // from provider_subscription_state
 
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
@@ -53,6 +59,37 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
     _loadGeoData();
     _loadProviderGeoSettings();
     _loadDistanceUnit();
+    _loadSubscription();
+  }
+
+  Future<void> _loadSubscription() async {
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) return;
+    
+    setState(() => _isLoadingSubscription = true);
+    try {
+      // Load subscription state
+      final subState = await SupabaseService.instance.getProviderSubscriptionState(userId);
+      final subscription = await SupabaseService.instance.getProviderActiveSubscription(userId);
+      if (mounted) {
+        setState(() {
+          _subscriptionStatus = subState['subscription_status'] as String? ?? 'inactive';
+          _activeSubscription = subscription;
+          _isLoadingSubscription = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading subscription: $e');
+      if (mounted) setState(() => _isLoadingSubscription = false);
+    }
+  }
+
+  void _showPlanPurchaseDialog() {
+    final currentPlanId = _activeSubscription?['plan_id'] as String?;
+    showDialog(
+      context: context,
+      builder: (ctx) => ProviderPlanPurchaseDialog(currentPlanId: currentPlanId),
+    ).then((_) => _loadSubscription());
   }
 
   Future<void> _loadDistanceUnit() async {
@@ -465,7 +502,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
   Widget build(BuildContext context) {
     final l = LocalizationService.instance;
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: AppTheme.surface,
         elevation: 0,
@@ -561,6 +598,8 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
           children: [
             _buildAvailabilityBanner(l),
             const SizedBox(height: 16),
+            _buildSubscriptionCard(l),
+            const SizedBox(height: 16),
             _buildProfileHeader(l),
             const SizedBox(height: 16),
             _buildBusinessCard(l),
@@ -653,6 +692,175 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
               );
             },
             activeThumbColor: AppTheme.success,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSubscriptionCard(LocalizationService l) {
+    if (_isLoadingSubscription) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.outlineVariant),
+        ),
+        child: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final hasSubscription = _activeSubscription != null;
+    final isPaused = _subscriptionStatus == 'paused';
+    final isTrial = _subscriptionStatus == 'trial';
+    final isActive = _subscriptionStatus == 'active' || isTrial;
+    final planName = hasSubscription
+        ? (_activeSubscription!['plan']?['name'] ?? 'Unknown Plan')
+        : null;
+    final expiresAt = hasSubscription
+        ? DateTime.tryParse(_activeSubscription!['expires_at'] ?? '')
+        : null;
+    final isExpired = expiresAt != null && expiresAt.isBefore(DateTime.now());
+
+    // Determine visual state
+    final isGood = isActive && !isExpired;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isGood
+            ? AppTheme.successContainer
+            : AppTheme.warningContainer,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isGood
+              ? AppTheme.success.withAlpha(80)
+              : AppTheme.warning.withAlpha(80),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isGood ? AppTheme.success : AppTheme.warning,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  isGood
+                      ? Icons.workspace_premium
+                      : Icons.workspace_premium_outlined,
+                  color: Colors.white,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isPaused
+                          ? l.t('subscription_paused')
+                          : isGood
+                              ? l.t('active_subscription')
+                              : isExpired
+                                  ? l.t('subscription_expired')
+                                  : l.t('no_active_subscription'),
+                      style: GoogleFonts.manrope(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.onSurface,
+                      ),
+                    ),
+                    if (hasSubscription && !isPaused) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        '$planName${expiresAt != null ? ' • ${l.t('expires')}: ${expiresAt.day}/${expiresAt.month}/${expiresAt.year}' : ''}',
+                        style: GoogleFonts.manrope(
+                          fontSize: 12,
+                          color: AppTheme.onSurfaceVariant,
+                        ),
+                      ),
+                      // Show trial badge
+                      if (isTrial || (_activeSubscription?['admin_notes']?.toString().contains('Trial') ?? false))
+                        Container(
+                          margin: const EdgeInsets.only(top: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary.withAlpha(30),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            l.t('trial_period'),
+                            style: GoogleFonts.manrope(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.primary,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+          // Paused warning message
+          if (isPaused || (isExpired && hasSubscription)) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.error.withAlpha(15),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.error.withAlpha(50)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: AppTheme.error, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      l.t('subscription_paused_desc'),
+                      style: GoogleFonts.manrope(
+                        fontSize: 12,
+                        color: AppTheme.error,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _showPlanPurchaseDialog,
+              icon: Icon(
+                isGood ? Icons.refresh : Icons.upgrade,
+                size: 18,
+              ),
+              label: Text(
+                isGood ? l.t('renew_upgrade_plan') : l.t('subscribe_now'),
+                style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isGood
+                    ? AppTheme.success
+                    : AppTheme.warning,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -1261,11 +1469,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
             Icons.card_membership,
             l.t('subscription_plans'),
             AppTheme.primary,
-            () => Navigator.pushReplacementNamed(
-              context,
-              AppRoutes.jobRequestsScreen,
-              arguments: {'initialTabIndex': 2}, // Plans tab
-            ),
+            _showPlanPurchaseDialog,
           ),
           const Divider(height: 1, color: AppTheme.outlineVariant),
           _buildActionRow(
@@ -1278,6 +1482,13 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
               arguments: {'initialTabIndex': 1}, // Services tab
             ),
           ),
+          _buildActionRow(
+            Icons.description_outlined,
+            l.t('required_documents'),
+            AppTheme.primary,
+            () => Navigator.pushNamed(context, AppRoutes.providerDocumentsScreen),
+          ),
+          const Divider(height: 1, color: AppTheme.outlineVariant),
           _buildActionRow(
             Icons.help_outline_rounded,
             l.t('faq'),

@@ -522,11 +522,38 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
 
   bool get _isTablet => MediaQuery.of(context).size.width >= 600;
 
+  /// Get vehicle size images map from selected category, handling Supabase JSON types
+  Map<String, dynamic> _getVehicleImagesForCategory() {
+    if (_selectedCategory == null) return {};
+    
+    final category = _selectedCategory as Map<dynamic, dynamic>;
+    final rawImages = category['vehicle_size_images'];
+    if (rawImages == null) return {};
+    
+    // Supabase may return JSON as Map or as encoded JSON string
+    if (rawImages is Map<String, dynamic>) {
+      return rawImages;
+    } else if (rawImages is Map) {
+      return Map<String, dynamic>.from(rawImages);
+    } else if (rawImages is String) {
+      // Try to decode JSON string
+      try {
+        final decoded = jsonDecode(rawImages);
+        if (decoded is Map) {
+          return Map<String, dynamic>.from(decoded);
+        }
+      } catch (_) {
+        return {};
+      }
+    }
+    return {};
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = LocalizationService.instance;
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: AppTheme.surface,
         elevation: 0,
@@ -703,7 +730,7 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: _availableVehicleSizes.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
             itemBuilder: (context, index) {
               final vehicle = _availableVehicleSizes[index];
               final isSelected = _selectedVehicleSize == vehicle['id'];
@@ -740,13 +767,33 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(
-                        vehicle['emoji'] as String,
-                        style: const TextStyle(fontSize: 26),
+                      // Check for custom image first, then fall back to emoji
+                      Builder(
+                        builder: (context) {
+                          final vehicleImages = _getVehicleImagesForCategory();
+                          final imageUrl = vehicleImages[vehicle['id']] as String?;
+                          if (imageUrl != null && imageUrl.isNotEmpty) {
+                            return ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: Image.network(
+                                imageUrl,
+                                width: 40,
+                                height: 40,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) =>
+                                    Text(vehicle['emoji'] as String, style: const TextStyle(fontSize: 26)),
+                              ),
+                            );
+                          }
+                          return Text(
+                            vehicle['emoji'] as String,
+                            style: const TextStyle(fontSize: 26),
+                          );
+                        },
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        vehicle['label'] as String,
+                        AppConstants.getVehicleSizeLabel(vehicle['id'] as String),
                         style: GoogleFonts.manrope(
                           fontSize: 9,
                           fontWeight: FontWeight.w600,

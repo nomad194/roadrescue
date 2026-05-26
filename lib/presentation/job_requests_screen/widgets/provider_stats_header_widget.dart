@@ -98,11 +98,11 @@ class ProviderStatsHeaderWidget extends StatelessWidget {
           const SizedBox(height: 16),
           Row(
             children: [
-              _StatTab(label: 'NEW', value: '$newCount', isActive: selectedStatus == 'new', onTap: () => onStatusChanged('new'), color: const Color(0xFFFBBF24)),
+              _StatTab(label: l.t('tab_new'), value: '$newCount', isActive: selectedStatus == 'new', onTap: () => onStatusChanged('new'), color: const Color(0xFFFBBF24)),
               _StatDivider(),
-              _StatTab(label: 'QUOTED', value: '$quotedCount', isActive: selectedStatus == 'quoted', onTap: () => onStatusChanged('quoted'), color: const Color(0xFF93C5FD)),
+              _StatTab(label: l.t('tab_quoted'), value: '$quotedCount', isActive: selectedStatus == 'quoted', onTap: () => onStatusChanged('quoted'), color: const Color(0xFF93C5FD)),
               _StatDivider(),
-              _StatTab(label: 'ACTIVE', value: '$activeCount', isActive: selectedStatus == 'active', onTap: () => onStatusChanged('active'), color: const Color(0xFF4ADE80)),
+              _StatTab(label: l.t('tab_active'), value: '$activeCount', isActive: selectedStatus == 'active', onTap: () => onStatusChanged('active'), color: const Color(0xFF4ADE80)),
             ],
           ),
         ],

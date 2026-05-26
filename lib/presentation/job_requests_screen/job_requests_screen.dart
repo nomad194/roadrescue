@@ -11,6 +11,7 @@ import '../../theme/app_theme.dart';
 import '../../widgets/empty_state_widget.dart';
 import '../../widgets/loading_skeleton_widget.dart';
 import '../../widgets/service_area_map_widget.dart';
+import '../provider_profile_screen/widgets/provider_plan_purchase_dialog.dart';
 import './widgets/job_request_card_widget.dart';
 import './widgets/provider_stats_header_widget.dart';
 import './widgets/quote_bottom_sheet_widget.dart';
@@ -41,6 +42,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   final Map<String, _ServicePricing> _pricingMap = {};
   final Set<String> _enabledServices = {};
   Map<String, dynamic>? _activeSubscription;
+  String _subscriptionStatus = 'inactive'; // from provider_subscription_state
   bool _isSavingServices = false;
 
   // Plans State
@@ -163,19 +165,147 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     final userId = SupabaseService.instance.currentUser?.id;
     if (userId == null) return;
 
+    // Load subscription state (trial_used, status, etc.)
+    final subState = await SupabaseService.instance.getProviderSubscriptionState(userId);
+    if (mounted) {
+      setState(() {
+        _subscriptionStatus = subState['subscription_status'] as String? ?? 'inactive';
+      });
+    }
+
+    // Check new provider subscriptions table first
+    final providerSub = await SupabaseService.instance.getProviderActiveSubscription(userId);
+    if (mounted && providerSub != null) {
+      setState(() {
+        _activeSubscription = providerSub;
+      });
+      return;
+    }
+
+    // Fall back to legacy subscription system
     final sub = await SupabaseService.instance.getActiveSubscription(userId);
     if (mounted) {
       setState(() {
         if (sub != null) {
           _activeSubscription = sub;
         } else {
-          // Use free plan defaults from constants
-          _activeSubscription = {
-            'plan': AppConstants.freePlanLimits,
-          };
+          // No active subscription - will show subscription required UI
+          _activeSubscription = null;
         }
       });
     }
+  }
+
+  bool get _hasActiveSubscription {
+    // Check provider_subscription_state first
+    if (_subscriptionStatus == 'paused' || _subscriptionStatus == 'inactive') {
+      return false;
+    }
+    if (_subscriptionStatus == 'active' || _subscriptionStatus == 'trial') {
+      return true;
+    }
+
+    if (_activeSubscription == null) return false;
+    // Check if it's a provider subscription with completed payment
+    if (_activeSubscription!['payment_status'] != null) {
+      final isCompleted = _activeSubscription!['payment_status'] == 'completed';
+      if (!isCompleted) return false;
+      // Also check expiration
+      final expiresAt = _activeSubscription!['expires_at'];
+      if (expiresAt != null) {
+        final expDate = DateTime.tryParse(expiresAt);
+        if (expDate != null && expDate.isBefore(DateTime.now())) return false;
+      }
+      return true;
+    }
+    // Legacy subscription check - check if it has a plan with valid expiration
+    final expiresAt = _activeSubscription!['expires_at'] ?? _activeSubscription!['current_period_end'];
+    if (expiresAt != null) {
+      final expDate = expiresAt is String ? DateTime.tryParse(expiresAt) : null;
+      if (expDate != null && expDate.isBefore(DateTime.now())) return false;
+    }
+    return _activeSubscription!['plan'] != null;
+  }
+
+  bool get _isSubscriptionPaused => _subscriptionStatus == 'paused';
+
+  void _showPlanPurchaseDialog() {
+    final currentPlanId = _activeSubscription?['plan_id'] as String?;
+    showDialog(
+      context: context,
+      builder: (ctx) => ProviderPlanPurchaseDialog(currentPlanId: currentPlanId),
+    ).then((_) => _loadSubscription());
+  }
+
+  Widget _buildSubscriptionRequiredBanner(LocalizationService l) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.warningContainer,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.warning.withAlpha(80)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppTheme.warning,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(
+              Icons.workspace_premium_outlined,
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  l.t('subscription_required'),
+                  style: GoogleFonts.manrope(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  l.t('subscription_required_desc'),
+                  style: GoogleFonts.manrope(
+                    fontSize: 12,
+                    color: AppTheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ElevatedButton(
+            onPressed: _showPlanPurchaseDialog,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.warning,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(80, 36),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: Text(
+              l.t('subscribe'),
+              style: GoogleFonts.manrope(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadProviderServices() async {
@@ -800,6 +930,51 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
 
   void _onSendQuote(_JobRequest job) {
     final l = LocalizationService.instance;
+
+    // Block quote if subscription is paused or inactive
+    if (!_hasActiveSubscription || _isSubscriptionPaused) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: AppTheme.warning, size: 24),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  l.t('subscription_required'),
+                  style: GoogleFonts.manrope(fontSize: 16, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            l.t('subscription_paused_desc'),
+            style: GoogleFonts.manrope(fontSize: 14, color: AppTheme.onSurfaceVariant),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(l.t('cancel')),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _showPlanPurchaseDialog();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                foregroundColor: Colors.white,
+              ),
+              child: Text(l.t('subscribe_now')),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -857,89 +1032,13 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     }
   }
 
-  Future<void> _subscribeToPlan(Map<String, dynamic> plan) async {
-    final userId = SupabaseService.instance.currentUser?.id;
-    if (userId == null) return;
-
-    setState(() => _isSubscribing = true);
-    try {
-      final planId = plan['id'];
-      debugPrint('Attempting subscription for user $userId to plan $planId');
-
-      // 0. Ensure user profile exists first (fixes foreign key constraint)
-      final profileCreated = await SupabaseService.instance.ensureUserProfile(userId);
-      if (!profileCreated) {
-        throw Exception('Failed to create user profile - cannot subscribe');
-      }
-
-      // 1. Simple Upsert (minimal fields to avoid validation errors)
-      await Supabase.instance.client.from('provider_subscriptions').upsert({
-        'provider_id': userId,
-        'plan_id': planId,
-        'status': 'active',
-        'updated_at': DateTime.now().toIso8601String(),
-      }, onConflict: 'provider_id');
-
-      debugPrint('Subscription database write successful');
-
-      // 2. Reload all data to apply new restrictions and refresh highlight
-      await _initData();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Successfully subscribed to ${plan['name']}'),
-            backgroundColor: _dynamicCurrentPlanColor,
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.all(16),
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('Detailed Subscribe Error: $e');
-      if (mounted) {
-        // Show the actual technical error to help identify the DB issue
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: AppTheme.error,
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 5),
-            margin: const EdgeInsets.all(16),
-            action: SnackBarAction(
-              label: 'Details',
-              textColor: Colors.white,
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Debug Info'),
-                    content: SingleChildScrollView(child: Text(e.toString())),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text('Close'),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSubscribing = false);
-    }
-  }
-
   // ─── BUILD ───────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final l = LocalizationService.instance;
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: AppTheme.surface,
         elevation: 0,
@@ -1029,6 +1128,9 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
       body: SafeArea(
         child: Column(
           children: [
+            // Subscription required banner
+            if (!_hasActiveSubscription)
+              _buildSubscriptionRequiredBanner(l),
             ProviderStatsHeaderWidget(
               jobs: _jobs,
               selectedStatus: _selectedStatusFilter,
@@ -1074,10 +1176,6 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
       {
         'label': l.t('my_services_pricing'),
         'icon': Icons.build_circle_outlined,
-      },
-      {
-        'label': l.t('subscription_plans'),
-        'icon': Icons.card_membership_rounded,
       },
     ];
 
@@ -1146,8 +1244,6 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         return _buildJobRequestsTab(l);
       case 1:
         return _buildServicesTab(l);
-      case 2:
-        return _buildPlansTab(l);
       default:
         return const SizedBox.shrink();
     }
@@ -1186,9 +1282,9 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       alignment: Alignment.centerLeft,
       child: ChoiceChip(
-        label: const Text(
-          'COMPLETED',
-          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800),
+        label: Text(
+          l.t('status_done').toUpperCase(),
+          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800),
         ),
         selected: isSelected,
         onSelected: (val) {
@@ -1408,196 +1504,10 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     );
   }
 
-  Widget _buildPlansTab(LocalizationService l) {
-    if (_isLoadingPlans) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: AppTheme.surfaceVariant,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                _buildBillingToggle(
-                  'monthly',
-                  l.t('per_month').replaceAll('/', ''),
-                ),
-                _buildBillingToggle(
-                  'yearly',
-                  '${l.t('per_year').replaceAll('/', '')} (Save 20%)',
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          ..._availablePlans.asMap().entries.map(
-            (e) => _buildPlanCard(e.value, e.key, l),
-          ),
-          const SizedBox(height: 40),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBillingToggle(String cycle, String label) {
-    final isSelected = _billingCycle == cycle;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _billingCycle = cycle),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: isSelected ? AppTheme.primary : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.manrope(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: isSelected ? Colors.white : AppTheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPlanCard(
-    Map<String, dynamic> plan,
-    int index,
-    LocalizationService l,
-  ) {
-    final bool isFeatured = plan['is_featured'] as bool? ?? false;
-    final String badgeText = plan['badge_text'] as String? ?? '';
-    final bool isCurrentPlan =
-        _activeSubscription != null &&
-        _activeSubscription!['plan_id'] == plan['id'];
-    final isPopular =
-        isFeatured || index == 1 || badgeText.isNotEmpty || isCurrentPlan;
-
-    final priceMonthly = (plan['price_monthly'] as num?)?.toDouble() ?? 0;
-    final priceYearly = (plan['price_yearly'] as num?)?.toDouble();
-    final displayPrice = _billingCycle == 'yearly' && priceYearly != null
-        ? priceYearly / 12
-        : priceMonthly;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isCurrentPlan
-              ? _dynamicCurrentPlanColor
-              : (isPopular ? AppTheme.primary : AppTheme.outlineVariant),
-          width: 2,
-        ),
-      ),
-      child: Column(
-        children: [
-          if (isCurrentPlan || isPopular)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              decoration: BoxDecoration(
-                color: isCurrentPlan
-                    ? _dynamicCurrentPlanColor
-                    : AppTheme.primary,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(14),
-                ),
-              ),
-              child: Text(
-                isCurrentPlan
-                    ? l.t('current_plan')
-                    : (badgeText.isNotEmpty ? badgeText : l.t('most_popular')),
-                textAlign: TextAlign.center,
-                style: GoogleFonts.manrope(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      l.translateContent(
-                        plan['name_translations'] as Map<String, dynamic>? ??
-                            {},
-                        fallbackText: plan['name'],
-                      ),
-                      style: GoogleFonts.manrope(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    Text(
-                      '\$${displayPrice.toStringAsFixed(2)}',
-                      style: GoogleFonts.manrope(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        color: AppTheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: (isCurrentPlan || _isSubscribing)
-                        ? null
-                        : () => _subscribeToPlan(plan),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: isCurrentPlan
-                          ? _dynamicCurrentPlanColor.withAlpha(20)
-                          : AppTheme.primary,
-                      foregroundColor: isCurrentPlan
-                          ? _dynamicCurrentPlanColor
-                          : Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: _isSubscribing && !isCurrentPlan
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : Text(
-                            isCurrentPlan
-                                ? l.t('current_plan')
-                                : l.t('subscribe'),
-                          ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // ─── LEGACY PLAN METHODS REMOVED ────────────────────────────────────────────
+  // Plan subscription is now handled via ProviderPlanPurchaseDialog
+  // Accessed through the "Subscribe" button in subscription required banner
+  // or through Provider Profile > Subscribe Now
 
   Widget _buildJobList() {
     return ListView.separated(
@@ -1991,11 +1901,12 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
   }
 
   Widget _buildBasePriceField() {
+    final l = LocalizationService.instance;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Base Service Price',
+          l.t('base_service_price'),
           style: GoogleFonts.manrope(
             fontSize: 13,
             fontWeight: FontWeight.w600,
@@ -2037,7 +1948,7 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Supported Vehicles',
+          l.t('supported_vehicles'),
           style: GoogleFonts.manrope(
             fontSize: 13,
             fontWeight: FontWeight.w600,
@@ -2046,7 +1957,7 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
         ),
         const SizedBox(height: 4),
         Text(
-          'Select the vehicle types you can assist with for this service.',
+          l.t('supported_vehicles_desc'),
           style: GoogleFonts.manrope(fontSize: 11, color: AppTheme.muted),
         ),
         const SizedBox(height: 12),
@@ -2097,7 +2008,7 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
                         style: const TextStyle(fontSize: 16)),
                     const SizedBox(width: 6),
                     Text(
-                      opt['label'] as String,
+                      AppConstants.getVehicleSizeLabel(opt['id'] as String),
                       style: GoogleFonts.manrope(
                         fontSize: 12,
                         fontWeight:
@@ -2198,7 +2109,7 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
             ),
             const SizedBox(width: 8),
             Text(
-              'After-Hours Rates',
+              LocalizationService.instance.t('after_hours_rates'),
               style: GoogleFonts.manrope(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
@@ -2211,7 +2122,7 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
         TextButton.icon(
           onPressed: _addTimeSurcharge,
           icon: const Icon(Icons.add, size: 16),
-          label: const Text('Add time rule'),
+          label: Text(LocalizationService.instance.t('add_time_rule')),
         ),
       ],
     );

@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../routes/app_routes.dart';
 import '../../services/supabase_service.dart';
 import '../../services/localization_service.dart';
+import '../../services/mfa_service.dart';
 import '../../theme/app_theme.dart';
 import './widgets/auth_form_widget.dart';
 import './widgets/auth_header_widget.dart';
@@ -89,18 +90,37 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
     final user = SupabaseService.instance.currentUser;
     if (user == null) return;
 
-    // Fetch profile to get role
+    // Fetch profile to get role and verification status
     final profile = await SupabaseService.instance.getUserProfile(user.id);
     final role =
         profile?['role'] as String? ??
         user.userMetadata?['role'] as String? ??
         'customer';
 
-    if (!mounted) return;
+    // Check phone verification first - all users except admins must verify phone
+    if (role != 'admin') {
+      final isPhoneVerified = await MfaService.instance.isPhoneVerified(user.id);
+
+      if (!mounted) return;
+
+      if (!isPhoneVerified) {
+        // Redirect to phone verification screen first
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          AppRoutes.phoneVerificationScreen,
+          (r) => false,
+        );
+        return;
+      }
+    }
+
+    // Phone is verified, proceed to role-based redirect
     if (role == 'provider') {
+      // Check if provider documents are verified; if not, redirect to documents screen
+      final isVerified = profile?['is_verified'] as bool? ?? false;
       Navigator.pushNamedAndRemoveUntil(
         context,
-        AppRoutes.jobRequestsScreen,
+        isVerified ? AppRoutes.jobRequestsScreen : AppRoutes.providerDocumentsScreen,
         (r) => false,
       );
     } else if (role == 'admin') {
@@ -164,7 +184,7 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
     final size = MediaQuery.of(context).size;
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
         child: _isTablet ? _buildTabletLayout(size) : _buildPhoneLayout(size),
       ),
@@ -204,7 +224,7 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
                   const SizedBox(height: 16),
                   _buildToggleModeRow(),
                   const SizedBox(height: 20),
-                  const SocialLoginWidget(),
+                  SocialLoginWidget(selectedRole: _selectedRole),
                   if (_showDemoCredentials) ...[
                     const SizedBox(height: 24),
                     DemoCredentialsWidget(selectedRole: _selectedRole),

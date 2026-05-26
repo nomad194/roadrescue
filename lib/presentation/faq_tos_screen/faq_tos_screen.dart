@@ -76,7 +76,7 @@ class _FaqTosScreenState extends State<FaqTosScreen>
   Widget build(BuildContext context) {
     final l = LocalizationService.instance;
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: AppTheme.surface,
         elevation: 0,

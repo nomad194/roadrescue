@@ -10,7 +10,9 @@ import '../presentation/payment_screen/payment_screen.dart';
 import '../presentation/post_payment_screen/post_payment_screen.dart';
 import '../presentation/service_history_screen/service_history_screen.dart';
 import '../presentation/faq_tos_screen/faq_tos_screen.dart';
+import '../presentation/provider_documents_screen/provider_documents_screen.dart';
 import '../presentation/provider_reviews_screen/provider_reviews_screen.dart';
+import '../presentation/phone_verification_screen/phone_verification_screen.dart';
 import 'route_guard.dart';
 
 class AppRoutes {
@@ -26,6 +28,8 @@ class AppRoutes {
   static const String serviceHistoryScreen = '/service-history-screen';
   static const String faqTosScreen = '/faq-tos-screen';
   static const String providerReviewsScreen = '/provider-reviews-screen';
+  static const String providerDocumentsScreen = '/provider-documents-screen';
+  static const String phoneVerificationScreen = '/phone-verification-screen';
 
   static final Map<String, WidgetBuilder> _builders = {
     initial: (context) => const SignUpLoginScreen(),
@@ -53,6 +57,8 @@ class AppRoutes {
       final providerId = args is Map<String, dynamic> ? args['providerId'] as String? : null;
       return ProviderReviewsScreen(providerId: providerId);
     },
+    providerDocumentsScreen: (context) => const ProviderDocumentsScreen(),
+    phoneVerificationScreen: (context) => const PhoneVerificationScreen(),
   };
 
   static Route<dynamic>? onGenerateRoute(RouteSettings settings) {

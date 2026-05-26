@@ -210,10 +210,18 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
     final featureAddCtrl = TextEditingController();
     final badgeCtrl = TextEditingController(text: plan?['badge_text'] ?? '');
 
-    Map<String, String> nameTranslations = Map<String, String>.from(
-      plan?['name_translations'] ?? {},
-    );
-    String _selectedLangCode = LocalizationService.instance.defaultLanguage;
+    final defaultLang = LocalizationService.instance.defaultLanguage;
+    Map<String, String> nameTranslations = {};
+    final rawTranslations = plan?['name_translations'];
+    if (rawTranslations is Map) {
+      nameTranslations = rawTranslations.map((k, v) => MapEntry(k.toString(), v.toString()));
+    }
+    // Seed default language from the base name if translation missing
+    if (nameTranslations[defaultLang] == null || nameTranslations[defaultLang]!.isEmpty) {
+      final baseName = plan?['name'] as String? ?? '';
+      if (baseName.isNotEmpty) nameTranslations[defaultLang] = baseName;
+    }
+    String _selectedLangCode = defaultLang;
     List<String> features = List<String>.from(plan?['features'] ?? []);
     bool isActive = plan?['is_active'] ?? true;
     bool isFeatured = plan?['is_featured'] ?? false;
@@ -598,13 +606,15 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(ctx),
               child: Text(l.t('cancel')),
             ),
             ElevatedButton(
               onPressed: () async {
                 final Map<String, dynamic> data = {
-                  'name': nameCtrl.text.trim(),
+                  'name': nameTranslations[defaultLang]?.trim().isNotEmpty == true
+                      ? nameTranslations[defaultLang]!.trim()
+                      : nameCtrl.text.trim(),
                   'name_translations': nameTranslations,
                   'price_monthly': double.tryParse(priceMCtrl.text) ?? 0.0,
                   'price_yearly': double.tryParse(priceYCtrl.text),
@@ -652,7 +662,7 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
                         behavior: SnackBarBehavior.floating,
                       ),
                     );
-                    Navigator.pop(context);
+                    Navigator.pop(ctx);
                     _loadPlans();
                   }
                 } catch (e) {
@@ -1218,7 +1228,10 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
                       Row(
                         children: [
                           Text(
-                            plan['name'],
+                            LocalizationService.instance.translateContent(
+                              plan['name_translations'] as Map<String, dynamic>? ?? {},
+                              fallbackText: plan['name'] as String? ?? '',
+                            ),
                             style: GoogleFonts.manrope(
                               fontSize: 16,
                               fontWeight: FontWeight.w700,

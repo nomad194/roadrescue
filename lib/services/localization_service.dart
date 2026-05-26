@@ -37,7 +37,9 @@ class LocalizationService extends ChangeNotifier {
         _jsonTranslations[code] = decoded.map(
           (k, v) => MapEntry(k, v.toString()),
         );
-      } catch (_) {
+        debugPrint('Loaded ${decoded.length} translations for $code');
+      } catch (e) {
+        debugPrint('Error loading translations for $code: $e');
         // Fallback: use in-memory translations if JSON not found
       }
     }
@@ -120,7 +122,11 @@ class LocalizationService extends ChangeNotifier {
     }
     // Final fallback: in-memory map
     final translations = _translations[lang] ?? _translations['en']!;
-    return translations[key] ?? _translations['en']![key] ?? key;
+    final result = translations[key] ?? _translations['en']![key] ?? key;
+    if (result == key) {
+      debugPrint('Translation missing for key: $key (lang: $lang, jsonLoaded: ${_jsonTranslations.containsKey(lang)}, defaultLang: $_defaultLanguage)');
+    }
+    return result;
   }
 
   // Shorthand

@@ -226,4 +226,33 @@ class NotificationService {
       payload: 'provider_en_route',
     );
   }
+
+  // ─── DOCUMENT VERIFICATION NOTIFICATIONS ─────────────────────────────────
+
+  Future<void> notifyDocumentApproved() async {
+    await showLocalNotification(
+      title: '✅ Document Approved',
+      body: 'Your document has been approved. Check your verification status.',
+      payload: 'document_approved',
+    );
+  }
+
+  Future<void> notifyDocumentRejected(String? reason) async {
+    final message = reason != null && reason.isNotEmpty
+        ? 'Your document was rejected: $reason'
+        : 'Your document was rejected. Please re-upload.';
+    await showLocalNotification(
+      title: '❌ Document Rejected',
+      body: message,
+      payload: 'document_rejected',
+    );
+  }
+
+  Future<void> notifyAllDocumentsVerified() async {
+    await showLocalNotification(
+      title: '🎉 Verification Complete',
+      body: 'All your documents have been approved. You can now subscribe and start working!',
+      payload: 'documents_verified',
+    );
+  }
 }

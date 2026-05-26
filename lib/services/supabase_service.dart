@@ -93,11 +93,14 @@ class SupabaseService {
           .neq('job_status', 'cancelled');
       
       // Then fetch pending jobs that might be in range
+      // Exclude stale requests older than 24 hours to prevent ghost jobs
+      final staleThreshold = DateTime.now().subtract(const Duration(hours: 24)).toIso8601String();
       var pendingQuery = client
           .from('job_requests')
           .select('*, customer:customer_id(full_name, phone, avatar_url, address_lat, address_lng, selected_city_id, selected_state_id)')
           .eq('job_status', 'pending')
-          .isFilter('provider_id', null);
+          .isFilter('provider_id', null)
+          .gte('created_at', staleThreshold);
       
       // Apply category filter if specified
       if (categories != null && categories.isNotEmpty) {
@@ -911,5 +914,544 @@ class SupabaseService {
 
     // Bust cache by appending timestamp
     return '$publicUrl?t=${DateTime.now().millisecondsSinceEpoch}';
+  }
+
+  /// Upload app asset (logo, background, etc.) to Supabase Storage and return the public URL
+  Future<String?> uploadAppAsset(String bucket, String path, String filePath) async {
+    try {
+      final file = File(filePath);
+      final ext = filePath.split('.').last.toLowerCase();
+      final storagePath = '$path.$ext';
+
+      await client.storage
+          .from(bucket)
+          .upload(
+            storagePath,
+            file,
+            fileOptions: FileOptions(upsert: true, contentType: 'image/$ext'),
+          );
+
+      final publicUrl = client.storage
+          .from(bucket)
+          .getPublicUrl(storagePath);
+
+      // Bust cache by appending timestamp
+      return '$publicUrl?t=${DateTime.now().millisecondsSinceEpoch}';
+    } catch (e) {
+      debugPrint('Error uploading app asset: $e');
+      return null;
+    }
+  }
+
+  // ─── PROVIDER PAYMENT METHODS ──────────────────────────────────────────
+
+  /// Get all enabled provider payment methods
+  Future<List<Map<String, dynamic>>> getProviderPaymentMethods() async {
+    try {
+      final response = await client
+          .from('provider_payment_methods')
+          .select()
+          .eq('is_enabled', true)
+          .order('method_type');
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('Error fetching provider payment methods: $e');
+      return [];
+    }
+  }
+
+  /// Get all provider payment methods (for admin)
+  Future<List<Map<String, dynamic>>> getAllProviderPaymentMethods() async {
+    try {
+      final response = await client
+          .from('provider_payment_methods')
+          .select()
+          .order('method_type');
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('Error fetching all provider payment methods: $e');
+      return [];
+    }
+  }
+
+  /// Update payment method settings (admin only)
+  Future<void> updateProviderPaymentMethod(String id, {
+    required bool isEnabled,
+    required String instructions,
+  }) async {
+    await client.from('provider_payment_methods').update({
+      'is_enabled': isEnabled,
+      'instructions': instructions,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', id);
+  }
+
+  // ─── PROVIDER SUBSCRIPTIONS ────────────────────────────────────────────────
+
+  /// Get active subscription for a provider
+  Future<Map<String, dynamic>?> getProviderActiveSubscription(String providerId) async {
+    try {
+      final response = await client
+          .from('provider_subscriptions')
+          .select('*, plan:plan_id(*)')
+          .eq('provider_id', providerId)
+          .eq('payment_status', 'completed')
+          .gte('expires_at', DateTime.now().toIso8601String())
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+      return response;
+    } catch (e) {
+      debugPrint('Error fetching provider subscription: $e');
+      return null;
+    }
+  }
+
+  /// Create a new provider subscription (with trial support)
+  Future<Map<String, dynamic>?> createProviderSubscription({
+    required String providerId,
+    required String planId,
+    required String paymentMethod,
+    required double amount,
+    String billingCycle = 'monthly',
+  }) async {
+    try {
+      // Get plan details to check for trial
+      final planResponse = await client
+          .from('subscription_plans')
+          .select('trial_days')
+          .eq('id', planId)
+          .maybeSingle();
+
+      final trialDays = (planResponse?['trial_days'] as num?)?.toInt() ?? 0;
+      final hasTrial = trialDays > 0;
+
+      // Calculate expiration based on billing cycle + trial
+      final now = DateTime.now();
+      final baseDuration = billingCycle == 'yearly'
+          ? const Duration(days: 365)
+          : const Duration(days: 30);
+      final trialDuration = Duration(days: trialDays);
+      final expiresAt = now.add(baseDuration).add(trialDuration);
+
+      // If trial exists, mark as completed immediately so provider can use service
+      final response = await client.from('provider_subscriptions').insert({
+        'provider_id': providerId,
+        'plan_id': planId,
+        'payment_method': paymentMethod,
+        'payment_status': hasTrial ? 'completed' : 'pending',
+        'amount_paid': hasTrial ? 0.0 : amount, // No charge during trial
+        'starts_at': now.toIso8601String(),
+        'expires_at': expiresAt.toIso8601String(),
+        'created_at': now.toIso8601String(),
+        'updated_at': now.toIso8601String(),
+        'admin_notes': hasTrial ? 'Trial period - $trialDays days' : null,
+      }).select().single();
+
+      return response;
+    } catch (e) {
+      debugPrint('Error creating provider subscription: $e');
+      return null;
+    }
+  }
+
+  /// Upload payment receipt for manual payments
+  Future<String?> uploadPaymentReceipt(String subscriptionId, String filePath) async {
+    try {
+      final file = File(filePath);
+      final ext = filePath.split('.').last.toLowerCase();
+      final storagePath = 'payment_receipts/$subscriptionId.$ext';
+
+      await client.storage
+          .from('app-assets')
+          .upload(
+            storagePath,
+            file,
+            fileOptions: FileOptions(upsert: true, contentType: 'image/$ext'),
+          );
+
+      final publicUrl = client.storage
+          .from('app-assets')
+          .getPublicUrl(storagePath);
+
+      // Update subscription with receipt URL
+      await client.from('provider_subscriptions').update({
+        'payment_proof_url': publicUrl,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', subscriptionId);
+
+      return publicUrl;
+    } catch (e) {
+      debugPrint('Error uploading payment receipt: $e');
+      return null;
+    }
+  }
+
+  /// Get pending subscriptions (for admin review)
+  Future<List<Map<String, dynamic>>> getPendingProviderSubscriptions() async {
+    try {
+      final response = await client
+          .from('provider_subscriptions')
+          .select('*, plan:plan_id(*), provider:provider_id(full_name, email, phone)')
+          .eq('payment_status', 'pending')
+          .order('created_at', ascending: false);
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('Error fetching pending subscriptions: $e');
+      return [];
+    }
+  }
+
+  /// Update payment status (admin only)
+  Future<void> updateSubscriptionPaymentStatus(
+    String subscriptionId, {
+    required String status,
+    String? adminNotes,
+  }) async {
+    await client.from('provider_subscriptions').update({
+      'payment_status': status,
+      'admin_notes': adminNotes,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', subscriptionId);
+  }
+
+  // ─── PROVIDER SUBSCRIPTION STATE ────────────────────────────────────────
+
+  /// Get the provider's subscription state (trial_used, paid_months, status, etc.)
+  Future<Map<String, dynamic>> getProviderSubscriptionState(String providerId) async {
+    try {
+      final response = await client.rpc(
+        'get_provider_subscription_state',
+        params: {'p_provider_id': providerId},
+      );
+      if (response is Map<String, dynamic>) return response;
+      // Default state for providers with no record
+      return {
+        'subscription_status': 'inactive',
+        'trial_used': false,
+        'paid_months': 0,
+        'trial_reset_allowed': false,
+        'plan_id': null,
+        'trial_plan_id': null,
+      };
+    } catch (e) {
+      debugPrint('Error fetching subscription state: $e');
+      return {
+        'subscription_status': 'inactive',
+        'trial_used': false,
+        'paid_months': 0,
+        'trial_reset_allowed': false,
+        'plan_id': null,
+        'trial_plan_id': null,
+      };
+    }
+  }
+
+  /// Call the manage-subscription Edge Function
+  Future<Map<String, dynamic>> manageSubscription({
+    required String action,
+    String? providerId,
+    String? planId,
+    String? billingCycle,
+    double? amount,
+    String? paymentMethod,
+  }) async {
+    try {
+      final body = <String, dynamic>{
+        'action': action,
+        if (providerId != null) 'provider_id': providerId,
+        if (planId != null) 'plan_id': planId,
+        if (billingCycle != null) 'billing_cycle': billingCycle,
+        if (amount != null) 'amount': amount,
+        if (paymentMethod != null) 'payment_method': paymentMethod,
+      };
+
+      final response = await client.functions.invoke(
+        'manage-subscription',
+        body: body,
+      );
+
+      if (response.status != 200) {
+        final errorData = response.data;
+        final errorMsg = errorData is Map ? errorData['error']?.toString() ?? 'Unknown error' : 'Request failed';
+        debugPrint('manage-subscription error ($action): $errorMsg');
+        return {'ok': false, 'error': errorMsg};
+      }
+
+      final data = response.data;
+      if (data is Map<String, dynamic>) return data;
+      return {'ok': false, 'error': 'Invalid response format'};
+    } catch (e) {
+      debugPrint('manage-subscription exception ($action): $e');
+      return {'ok': false, 'error': e.toString()};
+    }
+  }
+
+  /// Start a free trial for a provider via Edge Function
+  Future<Map<String, dynamic>> startProviderTrial({
+    required String providerId,
+    required String planId,
+  }) async {
+    return manageSubscription(
+      action: 'start_trial',
+      providerId: providerId,
+      planId: planId,
+    );
+  }
+
+  /// Activate a paid subscription via Edge Function
+  Future<Map<String, dynamic>> activateProviderSubscription({
+    required String providerId,
+    required String planId,
+    String billingCycle = 'monthly',
+    double amount = 0,
+    String paymentMethod = 'online',
+  }) async {
+    return manageSubscription(
+      action: 'activate',
+      providerId: providerId,
+      planId: planId,
+      billingCycle: billingCycle,
+      amount: amount,
+      paymentMethod: paymentMethod,
+    );
+  }
+
+  /// Expire / pause a provider's subscription
+  Future<Map<String, dynamic>> expireProviderSubscription(String providerId) async {
+    return manageSubscription(
+      action: 'expire',
+      providerId: providerId,
+    );
+  }
+
+  /// Record a completed paid month (unlocks trial reset)
+  Future<Map<String, dynamic>> completePaidMonth(String providerId) async {
+    return manageSubscription(
+      action: 'complete_month',
+      providerId: providerId,
+    );
+  }
+
+  /// Check current subscription status via Edge Function
+  Future<Map<String, dynamic>> checkSubscriptionStatus(String providerId) async {
+    return manageSubscription(
+      action: 'check_status',
+      providerId: providerId,
+    );
+  }
+
+  // ─── PROVIDER DOCUMENTS ─────────────────────────────────────────────────
+
+  /// Get all active required document types
+  Future<List<Map<String, dynamic>>> getRequiredDocumentTypes() async {
+    try {
+      final response = await client
+          .from('required_document_types')
+          .select()
+          .eq('is_active', true)
+          .order('sort_order', ascending: true);
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('Error fetching required doc types: $e');
+      return [];
+    }
+  }
+
+  /// Get all required document types (including inactive) for admin
+  Future<List<Map<String, dynamic>>> getAllDocumentTypes() async {
+    try {
+      final response = await client
+          .from('required_document_types')
+          .select()
+          .order('sort_order', ascending: true);
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('Error fetching all doc types: $e');
+      return [];
+    }
+  }
+
+  /// Create a new required document type
+  Future<Map<String, dynamic>?> createDocumentType(Map<String, dynamic> data) async {
+    try {
+      final response = await client
+          .from('required_document_types')
+          .insert(data)
+          .select()
+          .single();
+      return response;
+    } catch (e) {
+      debugPrint('Error creating doc type: $e');
+      return null;
+    }
+  }
+
+  /// Update a required document type
+  Future<bool> updateDocumentType(int id, Map<String, dynamic> data) async {
+    try {
+      await client
+          .from('required_document_types')
+          .update(data)
+          .eq('id', id);
+      return true;
+    } catch (e) {
+      debugPrint('Error updating doc type: $e');
+      return false;
+    }
+  }
+
+  /// Soft-delete a document type (set is_active = false)
+  Future<bool> deactivateDocumentType(int id) async {
+    return updateDocumentType(id, {'is_active': false});
+  }
+
+  /// Get provider's uploaded documents
+  Future<List<Map<String, dynamic>>> getProviderDocuments(String providerId) async {
+    try {
+      final response = await client
+          .from('provider_documents')
+          .select('*, required_document_types(*)')
+          .eq('provider_id', providerId);
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('Error fetching provider documents: $e');
+      return [];
+    }
+  }
+
+  /// Get all provider documents for admin review (with provider info)
+  Future<List<Map<String, dynamic>>> getAllProviderDocuments({String? statusFilter}) async {
+    try {
+      var query = client
+          .from('provider_documents')
+          .select('*, required_document_types(*), user_profiles!provider_documents_provider_id_fkey(id, full_name, email, avatar_url)');
+      if (statusFilter != null && statusFilter.isNotEmpty) {
+        query = query.eq('status', statusFilter);
+      }
+      final response = await query.order('uploaded_at', ascending: false);
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('Error fetching all provider documents: $e');
+      return [];
+    }
+  }
+
+  /// Upload a document file to storage and upsert the provider_documents row
+  Future<Map<String, dynamic>?> uploadProviderDocument({
+    required String providerId,
+    required int documentTypeId,
+    required String filePath,
+  }) async {
+    try {
+      final file = File(filePath);
+      final ext = filePath.split('.').last.toLowerCase();
+      final storagePath = '$providerId/${documentTypeId}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+
+      await client.storage
+          .from('provider-documents')
+          .upload(
+            storagePath,
+            file,
+            fileOptions: FileOptions(upsert: true, contentType: 'image/$ext'),
+          );
+
+      final fileUrl = client.storage
+          .from('provider-documents')
+          .getPublicUrl(storagePath);
+
+      // Upsert the document record (re-upload resets status to pending)
+      final response = await client
+          .from('provider_documents')
+          .upsert({
+            'provider_id': providerId,
+            'document_type_id': documentTypeId,
+            'file_url': '$fileUrl?t=${DateTime.now().millisecondsSinceEpoch}',
+            'status': 'pending',
+            'rejection_reason': null,
+            'uploaded_at': DateTime.now().toIso8601String(),
+            'reviewed_at': null,
+            'reviewed_by': null,
+          }, onConflict: 'provider_id,document_type_id')
+          .select()
+          .single();
+      return response;
+    } catch (e) {
+      debugPrint('Error uploading provider document: $e');
+      return null;
+    }
+  }
+
+  /// Admin: approve a document
+  Future<bool> approveProviderDocument(String documentId, String reviewerId) async {
+    try {
+      await client
+          .from('provider_documents')
+          .update({
+            'status': 'approved',
+            'rejection_reason': null,
+            'reviewed_at': DateTime.now().toIso8601String(),
+            'reviewed_by': reviewerId,
+          })
+          .eq('id', documentId);
+      return true;
+    } catch (e) {
+      debugPrint('Error approving document: $e');
+      return false;
+    }
+  }
+
+  /// Admin: reject a document with reason
+  Future<bool> rejectProviderDocument(String documentId, String reviewerId, String reason) async {
+    try {
+      await client
+          .from('provider_documents')
+          .update({
+            'status': 'rejected',
+            'rejection_reason': reason,
+            'reviewed_at': DateTime.now().toIso8601String(),
+            'reviewed_by': reviewerId,
+          })
+          .eq('id', documentId);
+      return true;
+    } catch (e) {
+      debugPrint('Error rejecting document: $e');
+      return false;
+    }
+  }
+
+  /// Get audit trail for a document
+  Future<List<Map<String, dynamic>>> getDocumentAuditTrail(String documentId) async {
+    try {
+      final response = await client
+          .from('provider_document_audit')
+          .select('*, user_profiles!provider_document_audit_changed_by_fkey(full_name)')
+          .eq('document_id', documentId)
+          .order('changed_at', ascending: false);
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('Error fetching document audit: $e');
+      return [];
+    }
+  }
+
+  /// Check if a provider has all required documents verified
+  Future<bool> isProviderDocumentsVerified(String providerId) async {
+    try {
+      final requiredTypes = await getRequiredDocumentTypes();
+      if (requiredTypes.isEmpty) return true; // No docs required
+
+      final providerDocs = await getProviderDocuments(providerId);
+      final approvedTypeIds = providerDocs
+          .where((d) => d['status'] == 'approved')
+          .map((d) => d['document_type_id'] as int)
+          .toSet();
+
+      final requiredTypeIds = requiredTypes.map((t) => t['id'] as int).toSet();
+      return requiredTypeIds.every((id) => approvedTypeIds.contains(id));
+    } catch (e) {
+      debugPrint('Error checking provider docs verified: $e');
+      return false;
+    }
   }
 }

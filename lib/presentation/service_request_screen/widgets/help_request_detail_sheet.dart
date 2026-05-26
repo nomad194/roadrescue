@@ -603,24 +603,24 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
         break;
       case HelpRequestStatus.accepted:
         color = Colors.orange;
-        label = "Accepted";
+        label = l.t('status_accepted');
         break;
       case HelpRequestStatus.enRoute:
         color = AppTheme.success;
-        label = "En Route";
+        label = l.t('status_en_route');
         break;
       case HelpRequestStatus.awaitingConfirmation:
       case HelpRequestStatus.awaitingReconfirmation:
         color = AppTheme.secondary;
-        label = "Reviewing";
+        label = l.t('status_reviewing');
         break;
       case HelpRequestStatus.disputed:
         color = AppTheme.error;
-        label = "Disputed";
+        label = l.t('status_disputed');
         break;
       case HelpRequestStatus.completed:
         color = AppTheme.success;
-        label = "Done";
+        label = l.t('status_done');
         break;
       case HelpRequestStatus.cancelled:
         color = AppTheme.muted;

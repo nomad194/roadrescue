@@ -100,17 +100,17 @@ class ActiveRequestBannerWidget extends StatelessWidget {
       case HelpRequestStatus.quoted:
         return l.t('quote_received');
       case HelpRequestStatus.accepted:
-        return "Waiting for provider to start";
+        return l.t('status_waiting_provider');
       case HelpRequestStatus.enRoute:
         return l.t('provider_on_way');
       case HelpRequestStatus.awaitingConfirmation:
-        return request.customerConfirmation == true ? "Waiting for Provider..." : "Completion Requested";
+        return request.customerConfirmation == true ? l.t('status_waiting_provider_short') : l.t('status_completion_requested');
       case HelpRequestStatus.awaitingReconfirmation:
-        return "Confirm Completion";
+        return l.t('status_confirm_completion');
       case HelpRequestStatus.disputed:
-        return "Job Disputed";
+        return l.t('status_job_disputed');
       case HelpRequestStatus.completed:
-        return "Job Completed";
+        return l.t('status_job_completed');
       case HelpRequestStatus.cancelled:
         return l.t('cancel_request');
     }

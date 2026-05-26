@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
@@ -11,12 +12,34 @@ class ThemeService extends ChangeNotifier {
   String _appName = 'RoadRescue';
   String _appTagline = 'Roadside Assistance On Demand';
   String _logoUrl = '';
+  Color? _bgColor;
+  String _bgImageUrl = '';
+  Map<String, String> _appNameTranslations = {};
+  Map<String, String> _appTaglineTranslations = {};
 
   Color get primaryColor => _primaryColor;
   Color get secondaryColor => _secondaryColor;
   String get appName => _appName;
   String get appTagline => _appTagline;
   String get logoUrl => _logoUrl;
+  Color? get bgColor => _bgColor;
+  String get bgImageUrl => _bgImageUrl;
+  Map<String, String> get appNameTranslations => _appNameTranslations;
+  Map<String, String> get appTaglineTranslations => _appTaglineTranslations;
+
+  /// Get localized app name based on language code (fallback to default)
+  String getLocalizedAppName(String languageCode) {
+    return _appNameTranslations[languageCode] ??
+           _appNameTranslations.values.firstOrNull ??
+           _appName;
+  }
+
+  /// Get localized tagline based on language code (fallback to default)
+  String getLocalizedTagline(String languageCode) {
+    return _appTaglineTranslations[languageCode] ??
+           _appTaglineTranslations.values.firstOrNull ??
+           _appTagline;
+  }
 
   Future<void> initialize() async {
     try {
@@ -24,11 +47,15 @@ class ThemeService extends ChangeNotifier {
           .from('app_settings')
           .select('setting_key, setting_value')
           .inFilter('setting_key', [
-            'primary_color', 
-            'secondary_color', 
-            'app_name', 
-            'app_tagline', 
-            'logo_url'
+            'primary_color',
+            'secondary_color',
+            'app_name',
+            'app_tagline',
+            'logo_url',
+            'bg_color',
+            'bg_image_url',
+            'app_name_translations',
+            'app_tagline_translations',
           ]);
 
       for (final row in response) {
@@ -66,6 +93,26 @@ class ThemeService extends ChangeNotifier {
     if (key == 'app_name' && value.isNotEmpty) _appName = value;
     if (key == 'app_tagline' && value.isNotEmpty) _appTagline = value;
     if (key == 'logo_url') _logoUrl = value;
+    if (key == 'bg_image_url') _bgImageUrl = value;
+
+    if (key == 'bg_color') {
+      final color = _parseHexColor(value);
+      if (color != null) _bgColor = color;
+    }
+
+    if (key == 'app_name_translations' && value.isNotEmpty) {
+      try {
+        final decoded = json.decode(value) as Map<String, dynamic>;
+        _appNameTranslations = decoded.map((k, v) => MapEntry(k, v.toString()));
+      } catch (_) {}
+    }
+
+    if (key == 'app_tagline_translations' && value.isNotEmpty) {
+      try {
+        final decoded = json.decode(value) as Map<String, dynamic>;
+        _appTaglineTranslations = decoded.map((k, v) => MapEntry(k, v.toString()));
+      } catch (_) {}
+    }
 
     final color = _parseHexColor(value);
     if (color != null) {
@@ -74,12 +121,26 @@ class ThemeService extends ChangeNotifier {
     }
   }
 
-  void updateSettings({Color? primary, Color? secondary, String? name, String? tagline, String? logo}) {
+  void updateSettings({
+    Color? primary,
+    Color? secondary,
+    String? name,
+    String? tagline,
+    String? logo,
+    Color? bgColor,
+    String? bgImageUrl,
+    Map<String, String>? appNameTranslations,
+    Map<String, String>? appTaglineTranslations,
+  }) {
     if (primary != null) _primaryColor = primary;
     if (secondary != null) _secondaryColor = secondary;
     if (name != null) _appName = name;
     if (tagline != null) _appTagline = tagline;
     if (logo != null) _logoUrl = logo;
+    if (bgColor != null) _bgColor = bgColor;
+    if (bgImageUrl != null) _bgImageUrl = bgImageUrl;
+    if (appNameTranslations != null) _appNameTranslations = appNameTranslations;
+    if (appTaglineTranslations != null) _appTaglineTranslations = appTaglineTranslations;
     notifyListeners();
   }
 

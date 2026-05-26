@@ -652,23 +652,23 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
         break;
       case 'awaiting_confirmation':
         color = AppTheme.secondary;
-        label = "PENDING CONFIRMATION";
+        label = l.t('status_completion_requested').toUpperCase();
         break;
       case 'awaiting_reconfirmation':
         color = AppTheme.warning;
-        label = "RE-CONFIRMING";
+        label = l.t('status_confirm_completion').toUpperCase();
         break;
       case 'en_route':
         color = const Color(0xFF0891B2);
-        label = 'EN ROUTE';
+        label = l.t('status_en_route').toUpperCase();
         break;
       case 'completed':
         color = AppTheme.success;
-        label = 'DONE';
+        label = l.t('status_done').toUpperCase();
         break;
       case 'cancelled':
         color = AppTheme.error;
-        label = 'CANCELLED';
+        label = l.t('cancel_request').toUpperCase();
         break;
       default:
         color = AppTheme.warning;

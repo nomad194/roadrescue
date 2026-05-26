@@ -7,8 +7,11 @@ import './widgets/admin_geo_zones_widget.dart';
 import './widgets/admin_providers_widget.dart';
 import './widgets/admin_transactions_widget.dart';
 import './widgets/admin_app_config_widget.dart';
+import './widgets/admin_document_review_widget.dart';
+import './widgets/admin_document_types_widget.dart';
 import './widgets/admin_payments_widget.dart';
 import './widgets/admin_payment_methods_widget.dart';
+import './widgets/admin_users_widget.dart';
 import '../../widgets/language_selector_widget.dart';
 import '../../services/localization_service.dart';
 
@@ -40,6 +43,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       'icon': Icons.verified_user_outlined,
     },
     {
+      'label': 'Users',
+      'icon': Icons.people_outlined,
+    },
+    {
       'label': 'Payment Methods',
       'icon': Icons.payment_outlined,
     },
@@ -55,12 +62,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       'label': LocalizationService.instance.t('app_config'),
       'icon': Icons.settings_outlined,
     },
+    {
+      'label': LocalizationService.instance.t('required_documents'),
+      'icon': Icons.description_outlined,
+    },
+    {
+      'label': LocalizationService.instance.t('document_review'),
+      'icon': Icons.fact_check_outlined,
+    },
   ];
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 7, vsync: this);
+    _tabController = TabController(length: 10, vsync: this);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
         setState(() => _selectedTab = _tabController.index);
@@ -78,7 +93,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Widget build(BuildContext context) {
     final tabs = _tabs;
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: AppTheme.surface,
         elevation: 0,
@@ -279,10 +294,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           RepaintBoundary(child: _TabContent(child: AdminCategoriesWidget())),
           RepaintBoundary(child: _TabContent(child: AdminGeoZonesWidget())),
           RepaintBoundary(child: _TabContent(child: AdminProvidersWidget())),
+          RepaintBoundary(child: _TabContent(child: AdminUsersWidget())),
           RepaintBoundary(child: _TabContent(child: AdminPaymentMethodsWidget())),
           RepaintBoundary(child: _TabContent(child: AdminPaymentsWidget())),
           RepaintBoundary(child: _TabContent(child: AdminTransactionsWidget())),
           RepaintBoundary(child: _TabContent(child: AdminAppConfigWidget())),
+          RepaintBoundary(child: _TabContent(child: AdminDocumentTypesWidget())),
+          RepaintBoundary(child: _TabContent(child: AdminDocumentReviewWidget())),
         ],
       ),
     );
@@ -295,13 +313,16 @@ class _TabContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final maxWidth = MediaQuery.sizeOf(context).width;
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: maxWidth - 32),
-        child: child,
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: SizedBox(
+            width: constraints.maxWidth - 32,
+            child: child,
+          ),
+        );
+      },
     );
   }
 }

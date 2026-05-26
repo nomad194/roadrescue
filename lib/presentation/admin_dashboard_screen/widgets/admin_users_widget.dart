@@ -4,74 +4,82 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../theme/app_theme.dart';
 import '../../../services/localization_service.dart';
 
-class AdminProvidersWidget extends StatefulWidget {
-  const AdminProvidersWidget({super.key});
+class AdminUsersWidget extends StatefulWidget {
+  const AdminUsersWidget({super.key});
 
   @override
-  State<AdminProvidersWidget> createState() => _AdminProvidersWidgetState();
+  State<AdminUsersWidget> createState() => _AdminUsersWidgetState();
 }
 
-class _AdminProvidersWidgetState extends State<AdminProvidersWidget> {
-  String _filterStatus = 'All';
-  List<Map<String, dynamic>> _providers = [];
+class _AdminUsersWidgetState extends State<AdminUsersWidget> {
+  String _filterRole = 'All';
+  List<Map<String, dynamic>> _users = [];
   bool _isLoading = true;
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
-    _loadProviders();
+    _loadUsers();
   }
 
-  Future<void> _loadProviders() async {
+  Future<void> _loadUsers() async {
     setState(() => _isLoading = true);
     try {
       final response = await Supabase.instance.client
           .from('user_profiles')
           .select()
-          .eq('role', 'provider')
           .order('created_at', ascending: false);
-
-      final providers = List<Map<String, dynamic>>.from(response);
-
-      // Fetch completed job counts in batch
-      for (final provider in providers) {
-        try {
-          final jobCount = await Supabase.instance.client
-              .from('job_requests')
-              .select('id')
-              .eq('provider_id', provider['id'])
-              .eq('job_status', 'completed');
-          provider['_completed_jobs'] = (jobCount as List).length;
-        } catch (_) {
-          provider['_completed_jobs'] = 0;
-        }
-      }
 
       if (mounted) {
         setState(() {
-          _providers = providers;
+          _users = List<Map<String, dynamic>>.from(response);
           _isLoading = false;
         });
       }
     } catch (e) {
-      debugPrint('Error loading providers: $e');
+      debugPrint('Error loading users: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
   List<String> get _filters {
     final l = LocalizationService.instance;
-    return [l.t('all'), 'Pending', l.t('verified'), 'Suspended'];
+    return [l.t('all'), l.t('customer'), l.t('provider'), l.t('admin')];
   }
 
-  String _getStatus(Map<String, dynamic> provider) {
-    if (provider['is_suspended'] == true) return 'Suspended';
-    if (provider['is_verified'] == true) return 'Verified';
-    return 'Pending';
+  String _roleForFilter(String filter) {
+    final l = LocalizationService.instance;
+    if (filter == l.t('customer')) return 'customer';
+    if (filter == l.t('provider')) return 'provider';
+    if (filter == l.t('admin')) return 'admin';
+    return 'all';
   }
 
-  String _getInitials(Map<String, dynamic> provider) {
-    final name = provider['full_name'] as String? ?? '';
+  List<Map<String, dynamic>> get _filteredUsers {
+    final l = LocalizationService.instance;
+    var list = _users;
+
+    if (_filterRole != l.t('all') && _filterRole != 'All') {
+      final role = _roleForFilter(_filterRole);
+      list = list.where((u) => u['role'] == role).toList();
+    }
+
+    if (_searchQuery.isNotEmpty) {
+      final q = _searchQuery.toLowerCase();
+      list = list.where((u) {
+        final name = (u['full_name'] as String? ?? '').toLowerCase();
+        final email = (u['email'] as String? ?? '').toLowerCase();
+        final phone = (u['phone'] as String? ?? '').toLowerCase();
+        return name.contains(q) || email.contains(q) || phone.contains(q);
+      }).toList();
+    }
+
+    return list;
+  }
+
+  String _getInitials(Map<String, dynamic> user) {
+    final name = user['full_name'] as String? ?? '';
     if (name.isEmpty) return '??';
     final parts = name.trim().split(' ');
     if (parts.length >= 2) {
@@ -80,74 +88,69 @@ class _AdminProvidersWidgetState extends State<AdminProvidersWidget> {
     return name.substring(0, name.length >= 2 ? 2 : 1).toUpperCase();
   }
 
-  List<Map<String, dynamic>> get _filteredProviders {
-    final l = LocalizationService.instance;
-    if (_filterStatus == l.t('all') || _filterStatus == 'All') return _providers;
-    return _providers.where((p) {
-      final status = _getStatus(p);
-      if (_filterStatus == 'Pending') return status == 'Pending';
-      if (_filterStatus == l.t('verified')) return status == 'Verified';
-      if (_filterStatus == 'Suspended') return status == 'Suspended';
-      return true;
-    }).toList();
-  }
-
-  Color _statusColor(String status) {
-    switch (status) {
-      case 'Verified':
-        return AppTheme.success;
-      case 'Pending':
-        return AppTheme.warning;
-      case 'Suspended':
+  Color _roleColor(String? role) {
+    switch (role) {
+      case 'admin':
         return AppTheme.error;
+      case 'provider':
+        return AppTheme.primary;
+      case 'customer':
+        return AppTheme.success;
       default:
         return AppTheme.muted;
     }
   }
 
-  Color _statusBgColor(String status) {
-    switch (status) {
-      case 'Verified':
-        return AppTheme.successContainer;
-      case 'Pending':
-        return AppTheme.warningContainer;
-      case 'Suspended':
+  Color _roleBgColor(String? role) {
+    switch (role) {
+      case 'admin':
         return AppTheme.errorContainer;
+      case 'provider':
+        return AppTheme.primaryContainer;
+      case 'customer':
+        return AppTheme.successContainer;
       default:
         return AppTheme.surfaceVariant;
     }
   }
 
-  String _statusLabel(String status) {
+  String _roleLabel(String? role) {
     final l = LocalizationService.instance;
-    switch (status) {
-      case 'Verified':
-        return l.t('verified');
-      case 'Pending':
-        return 'Pending';
-      case 'Suspended':
-        return l.t('suspend');
+    switch (role) {
+      case 'admin':
+        return l.t('admin');
+      case 'provider':
+        return l.t('provider');
+      case 'customer':
+        return l.t('customer');
       default:
-        return status;
+        return role ?? '—';
     }
   }
 
-  Future<void> _updateStatus(String providerId, {bool? isVerified, bool? isSuspended}) async {
-    try {
-      final data = <String, dynamic>{
-        'updated_at': DateTime.now().toIso8601String(),
-      };
-      if (isVerified != null) data['is_verified'] = isVerified;
-      if (isSuspended != null) data['is_suspended'] = isSuspended;
+  String _formatDate(String? dateStr) {
+    if (dateStr == null) return '—';
+    final date = DateTime.tryParse(dateStr);
+    if (date == null) return dateStr;
+    final months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
 
+  Future<void> _updateSuspended(String userId, bool suspended) async {
+    try {
       await Supabase.instance.client
           .from('user_profiles')
-          .update(data)
-          .eq('id', providerId);
-
-      await _loadProviders();
+          .update({
+            'is_suspended': suspended,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', userId);
+      await _loadUsers();
     } catch (e) {
-      debugPrint('Error updating provider status: $e');
+      debugPrint('Error updating user: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -159,17 +162,9 @@ class _AdminProvidersWidgetState extends State<AdminProvidersWidget> {
     }
   }
 
-  String _formatDate(String? dateStr) {
-    if (dateStr == null) return '—';
-    final date = DateTime.tryParse(dateStr);
-    if (date == null) return dateStr;
-    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return '${months[date.month - 1]} ${date.day}, ${date.year}';
-  }
-
-  void _showProviderDetail(Map<String, dynamic> provider) {
+  void _showUserDetail(Map<String, dynamic> user) {
     final l = LocalizationService.instance;
-    final status = _getStatus(provider);
+    final role = user['role'] as String? ?? '';
     showModalBottomSheet(
       context: context,
       backgroundColor: AppTheme.surface,
@@ -179,7 +174,7 @@ class _AdminProvidersWidgetState extends State<AdminProvidersWidget> {
       isScrollControlled: true,
       builder: (ctx) => DraggableScrollableSheet(
         expand: false,
-        initialChildSize: 0.6,
+        initialChildSize: 0.55,
         maxChildSize: 0.85,
         builder: (_, scrollController) => SingleChildScrollView(
           controller: scrollController,
@@ -202,13 +197,13 @@ class _AdminProvidersWidgetState extends State<AdminProvidersWidget> {
                 children: [
                   CircleAvatar(
                     radius: 28,
-                    backgroundColor: AppTheme.primaryContainer,
+                    backgroundColor: _roleBgColor(role),
                     child: Text(
-                      _getInitials(provider),
+                      _getInitials(user),
                       style: GoogleFonts.manrope(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
-                        color: AppTheme.primary,
+                        color: _roleColor(role),
                       ),
                     ),
                   ),
@@ -218,7 +213,7 @@ class _AdminProvidersWidgetState extends State<AdminProvidersWidget> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          provider['full_name'] ?? '—',
+                          user['full_name'] ?? '—',
                           style: GoogleFonts.manrope(
                             fontSize: 18,
                             fontWeight: FontWeight.w700,
@@ -226,7 +221,7 @@ class _AdminProvidersWidgetState extends State<AdminProvidersWidget> {
                           ),
                         ),
                         Text(
-                          provider['email'] ?? '—',
+                          user['email'] ?? '—',
                           style: GoogleFonts.manrope(
                             fontSize: 13,
                             color: AppTheme.onSurfaceVariant,
@@ -241,99 +236,100 @@ class _AdminProvidersWidgetState extends State<AdminProvidersWidget> {
                       vertical: 5,
                     ),
                     decoration: BoxDecoration(
-                      color: _statusBgColor(status),
+                      color: _roleBgColor(role),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
-                      _statusLabel(status),
+                      _roleLabel(role),
                       style: GoogleFonts.manrope(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: _statusColor(status),
+                        color: _roleColor(role),
                       ),
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 20),
-              _detailRow(Icons.phone_outlined, l.t('phone'), provider['phone'] ?? '—'),
-              const SizedBox(height: 10),
-              _detailRow(
-                Icons.business_outlined,
-                l.t('business_name'),
-                provider['business_name'] ?? '—',
-              ),
+              _detailRow(Icons.phone_outlined, l.t('phone'), user['phone'] ?? '—'),
               const SizedBox(height: 10),
               _detailRow(
                 Icons.calendar_today_outlined,
                 'Joined',
-                _formatDate(provider['created_at'] as String?),
-              ),
-              const SizedBox(height: 10),
-              _detailRow(
-                Icons.work_outline,
-                'Completed Jobs',
-                '${provider['_completed_jobs'] ?? 0}',
+                _formatDate(user['created_at'] as String?),
               ),
               const SizedBox(height: 10),
               _detailRow(
                 Icons.location_on_outlined,
                 'Address',
-                provider['address'] ?? '—',
+                user['address'] ?? '—',
+              ),
+              const SizedBox(height: 10),
+              if (role == 'provider') ...[
+                _detailRow(
+                  Icons.business_outlined,
+                  l.t('business_name'),
+                  user['business_name'] ?? '—',
+                ),
+                const SizedBox(height: 10),
+                _detailRow(
+                  Icons.check_circle_outline,
+                  l.t('verified'),
+                  user['is_verified'] == true ? l.t('yes') : l.t('no'),
+                ),
+                const SizedBox(height: 10),
+              ],
+              _detailRow(
+                Icons.toggle_on_outlined,
+                l.t('status'),
+                user['is_suspended'] == true ? 'Suspended' : 'Active',
               ),
               const SizedBox(height: 24),
-              Text(
-                'Update Status',
-                style: GoogleFonts.manrope(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.onSurface,
+              if (user['role'] != 'admin')
+                Row(
+                  children: [
+                    if (user['is_suspended'] == true)
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _updateSuspended(user['id'], false);
+                          },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppTheme.success,
+                            side: const BorderSide(color: AppTheme.success),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: Text(
+                            'Activate',
+                            style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _updateSuspended(user['id'], true);
+                          },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppTheme.error,
+                            side: const BorderSide(color: AppTheme.error),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: Text(
+                            l.t('suspend'),
+                            style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        _updateStatus(provider['id'], isVerified: true, isSuspended: false);
-                      },
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppTheme.success,
-                        side: const BorderSide(color: AppTheme.success),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      child: Text(
-                        l.t('verify'),
-                        style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        _updateStatus(provider['id'], isVerified: false, isSuspended: true);
-                      },
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppTheme.error,
-                        side: const BorderSide(color: AppTheme.error),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      child: Text(
-                        l.t('suspend'),
-                        style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
             ],
           ),
         ),
@@ -371,18 +367,21 @@ class _AdminProvidersWidgetState extends State<AdminProvidersWidget> {
   @override
   Widget build(BuildContext context) {
     final l = LocalizationService.instance;
-    final filtered = _filteredProviders;
-    if (_filterStatus == 'All') _filterStatus = l.t('all');
+    final filtered = _filteredUsers;
+    if (_filterRole == 'All') _filterRole = l.t('all');
 
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
 
+    final totalCustomers = _users.where((u) => u['role'] == 'customer').length;
+    final totalProviders = _users.where((u) => u['role'] == 'provider').length;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Provider Verification',
+          'Users',
           style: GoogleFonts.manrope(
             fontSize: 18,
             fontWeight: FontWeight.w700,
@@ -390,22 +389,40 @@ class _AdminProvidersWidgetState extends State<AdminProvidersWidget> {
           ),
         ),
         Text(
-          '${_providers.where((p) => _getStatus(p) == 'Pending').length} pending verification',
+          '${_users.length} registered · $totalCustomers ${l.t('customer').toLowerCase()} · $totalProviders ${l.t('provider').toLowerCase()}',
           style: GoogleFonts.manrope(
             fontSize: 13,
             color: AppTheme.onSurfaceVariant,
           ),
         ),
         const SizedBox(height: 14),
+        TextField(
+          onChanged: (v) => setState(() => _searchQuery = v),
+          decoration: InputDecoration(
+            hintText: '${l.t('search')}...',
+            hintStyle: GoogleFonts.manrope(fontSize: 13, color: AppTheme.muted),
+            prefixIcon: const Icon(Icons.search, size: 20, color: AppTheme.muted),
+            filled: true,
+            fillColor: AppTheme.surfaceVariant,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            isDense: true,
+          ),
+          style: GoogleFonts.manrope(fontSize: 13, color: AppTheme.onSurface),
+        ),
+        const SizedBox(height: 14),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(
             children: _filters.map((f) {
-              final isSelected = _filterStatus == f;
+              final isSelected = _filterRole == f;
               return Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: GestureDetector(
-                  onTap: () => setState(() => _filterStatus = f),
+                  onTap: () => setState(() => _filterRole = f),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 14,
@@ -439,7 +456,7 @@ class _AdminProvidersWidgetState extends State<AdminProvidersWidget> {
             child: Padding(
               padding: const EdgeInsets.all(32),
               child: Text(
-                'No providers found',
+                'No users found',
                 style: GoogleFonts.manrope(fontSize: 14, color: AppTheme.muted),
               ),
             ),
@@ -451,10 +468,10 @@ class _AdminProvidersWidgetState extends State<AdminProvidersWidget> {
             itemCount: filtered.length,
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
-              final p = filtered[index];
-              final status = _getStatus(p);
+              final u = filtered[index];
+              final role = u['role'] as String? ?? '';
               return GestureDetector(
-                onTap: () => _showProviderDetail(p),
+                onTap: () => _showUserDetail(u),
                 child: Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
@@ -466,13 +483,13 @@ class _AdminProvidersWidgetState extends State<AdminProvidersWidget> {
                     children: [
                       CircleAvatar(
                         radius: 22,
-                        backgroundColor: AppTheme.primaryContainer,
+                        backgroundColor: _roleBgColor(role),
                         child: Text(
-                          _getInitials(p),
+                          _getInitials(u),
                           style: GoogleFonts.manrope(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
-                            color: AppTheme.primary,
+                            color: _roleColor(role),
                           ),
                         ),
                       ),
@@ -482,7 +499,7 @@ class _AdminProvidersWidgetState extends State<AdminProvidersWidget> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              p['full_name'] ?? '—',
+                              u['full_name'] ?? '—',
                               style: GoogleFonts.manrope(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,
@@ -490,7 +507,7 @@ class _AdminProvidersWidgetState extends State<AdminProvidersWidget> {
                               ),
                             ),
                             Text(
-                              p['business_name'] ?? p['email'] ?? '',
+                              u['email'] ?? '',
                               style: GoogleFonts.manrope(
                                 fontSize: 12,
                                 color: AppTheme.onSurfaceVariant,
@@ -509,21 +526,21 @@ class _AdminProvidersWidgetState extends State<AdminProvidersWidget> {
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: _statusBgColor(status),
+                              color: _roleBgColor(role),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              _statusLabel(status),
+                              _roleLabel(role),
                               style: GoogleFonts.manrope(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
-                                color: _statusColor(status),
+                                color: _roleColor(role),
                               ),
                             ),
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '${p['_completed_jobs'] ?? 0} jobs',
+                            _formatDate(u['created_at'] as String?),
                             style: GoogleFonts.manrope(
                               fontSize: 11,
                               color: AppTheme.muted,

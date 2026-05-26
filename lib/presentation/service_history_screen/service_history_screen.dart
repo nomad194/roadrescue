@@ -38,7 +38,7 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
   Widget build(BuildContext context) {
     final l = LocalizationService.instance;
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: AppTheme.surface,
         elevation: 0,
@@ -96,7 +96,7 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
     return ListView.separated(
       padding: const EdgeInsets.all(16),
       itemCount: _history.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
         final Map<String, dynamic> item = _history[index];
         final bool isProvider = currentUserId == item['provider_id'];
@@ -171,7 +171,7 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
                         ? NetworkImage(otherAvatarUrl) as ImageProvider
                         : null,
                     onBackgroundImageError: otherAvatarUrl != null && otherAvatarUrl.isNotEmpty
-                        ? (_, __) {}
+                        ? (_, _) {}
                         : null,
                     child: otherAvatarUrl == null || otherAvatarUrl.isEmpty
                         ? Text(

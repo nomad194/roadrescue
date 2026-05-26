@@ -221,7 +221,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
   Widget build(BuildContext context) {
     final l = LocalizationService.instance;
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: AppTheme.surface,
         elevation: 0,
@@ -349,7 +349,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                     ? NetworkImage(_avatarUrl!) as ImageProvider
                     : null,
                 onBackgroundImageError: _avatarUrl != null && _avatarUrl!.isNotEmpty
-                    ? (_, __) {}
+                    ? (_, _) {}
                     : null,
                 child: _isUploadingAvatar
                     ? const SizedBox(

@@ -5,6 +5,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_stripe/flutter_stripe.dart' hide Card;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import './config/app_constants.dart';
 import './config/app_env.dart';
 import './services/localization_service.dart';
 import './services/notification_service.dart';
@@ -47,6 +48,13 @@ void main() async {
     await LocalizationService.instance.initialize();
   } catch (e) {
     debugPrint('Failed to initialize localization: $e');
+  }
+
+  try {
+    final vsRaw = await SupabaseService.instance.getAppSetting('vehicle_size_translations');
+    AppConstants.setVehicleSizeTranslations(vsRaw);
+  } catch (e) {
+    debugPrint('Failed to load vehicle size translations: $e');
   }
 
   try {
@@ -169,6 +177,8 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
+final _navigatorKey = GlobalKey<NavigatorState>();
+
 class _MyAppState extends State<MyApp> {
   StreamSubscription<AuthState>? _authSubscription;
 
@@ -203,48 +213,105 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: Listenable.merge([
-        LocalizationService.instance,
-        ThemeService.instance,
-      ]),
-      builder: (context, _) {
-        final currentLocale = LocalizationService.instance.currentLocale;
-        final themeData = AppTheme.buildTheme(
-          primary: ThemeService.instance.primaryColor,
-          secondary: ThemeService.instance.secondaryColor,
-        );
+    return Sizer(
+      builder: (context, orientation, screenType) {
+        return MaterialApp(
+          navigatorKey: _navigatorKey,
+          title: 'roadrescue',
+          // Base theme — overridden dynamically inside builder
+          theme: AppTheme.buildTheme(
+            primary: AppTheme.primary,
+            secondary: AppTheme.secondary,
+          ),
+          themeMode: ThemeMode.light,
+          supportedLocales: LocalizationService.supportedLanguages.keys
+              .map((code) => Locale(code))
+              .toList(),
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          // 🚨 CRITICAL: NEVER REMOVE OR MODIFY
+          builder: (context, child) {
+            return ListenableBuilder(
+              listenable: Listenable.merge([
+                LocalizationService.instance,
+                ThemeService.instance,
+              ]),
+              builder: (context, _) {
+                final themeData = AppTheme.buildTheme(
+                  primary: ThemeService.instance.primaryColor,
+                  secondary: ThemeService.instance.secondaryColor,
+                );
 
-        return Sizer(
-          builder: (context, orientation, screenType) {
-            return MaterialApp(
-              title: 'roadrescue',
-              theme: themeData,
-              themeMode: ThemeMode.light,
-              locale: currentLocale,
-              supportedLocales: LocalizationService.supportedLanguages.keys
-                  .map((code) => Locale(code))
-                  .toList(),
-              localizationsDelegates: const [
-                GlobalMaterialLocalizations.delegate,
-                GlobalWidgetsLocalizations.delegate,
-                GlobalCupertinoLocalizations.delegate,
-              ],
-              // 🚨 CRITICAL: NEVER REMOVE OR MODIFY
-              builder: (context, child) {
-                return MediaQuery(
-                  data: MediaQuery.of(
-                    context,
-                  ).copyWith(textScaler: TextScaler.linear(1.0)),
-                  child: child!,
+                // Apply background color or image from ThemeService
+                final bgColor = ThemeService.instance.bgColor;
+                final bgImageUrl = ThemeService.instance.bgImageUrl;
+
+                // Build theme with background color
+                final themedData = themeData.copyWith(
+                  scaffoldBackgroundColor: bgColor ?? themeData.scaffoldBackgroundColor,
+                );
+
+                // Build the main app content
+                Widget themedChild = child!;
+
+                // Apply global background using Stack - background at bottom, app on top
+                if (bgImageUrl.isNotEmpty) {
+                  themedChild = Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      // Background layer
+                      Container(
+                        decoration: BoxDecoration(
+                          color: themedData.scaffoldBackgroundColor,
+                          image: DecorationImage(
+                            image: NetworkImage(bgImageUrl),
+                            fit: BoxFit.cover,
+                            opacity: 0.15,
+                          ),
+                        ),
+                      ),
+                      // App content layer
+                      themedChild,
+                    ],
+                  );
+                } else if (bgColor != null) {
+                  themedChild = Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      // Background layer
+                      Container(color: bgColor),
+                      // App content layer
+                      themedChild,
+                    ],
+                  );
+                }
+
+                return Theme(
+                  data: themedData.copyWith(
+                    // Make scaffold backgrounds transparent so background shows through
+                    scaffoldBackgroundColor: bgColor != null ? Colors.transparent : themedData.scaffoldBackgroundColor,
+                  ),
+                  child: Localizations.override(
+                    context: context,
+                    locale: LocalizationService.instance.currentLocale,
+                    child: MediaQuery(
+                      data: MediaQuery.of(context).copyWith(
+                        textScaler: TextScaler.linear(1.0),
+                      ),
+                      child: themedChild,
+                    ),
+                  ),
                 );
               },
-              // 🚨 END CRITICAL SECTION
-              debugShowCheckedModeBanner: false,
-              onGenerateRoute: AppRoutes.onGenerateRoute,
-              initialRoute: AppRoutes.initial,
             );
           },
+          // 🚨 END CRITICAL SECTION
+          debugShowCheckedModeBanner: false,
+          onGenerateRoute: AppRoutes.onGenerateRoute,
+          initialRoute: AppRoutes.initial,
         );
       },
     );
