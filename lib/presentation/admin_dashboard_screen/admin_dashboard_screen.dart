@@ -4,6 +4,7 @@ import '../../theme/app_theme.dart';
 import '../../routes/app_routes.dart';
 import './widgets/admin_categories_widget.dart';
 import './widgets/admin_geo_zones_widget.dart';
+import './widgets/admin_phone_verification_widget.dart';
 import './widgets/admin_providers_widget.dart';
 import './widgets/admin_transactions_widget.dart';
 import './widgets/admin_app_config_widget.dart';
@@ -47,6 +48,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       'icon': Icons.people_outlined,
     },
     {
+      'label': 'Phone Verification',
+      'icon': Icons.verified_user_outlined,
+    },
+    {
       'label': 'Payment Methods',
       'icon': Icons.payment_outlined,
     },
@@ -75,7 +80,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 10, vsync: this);
+    _tabController = TabController(length: 11, vsync: this);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
         setState(() => _selectedTab = _tabController.index);
@@ -295,6 +300,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           RepaintBoundary(child: _TabContent(child: AdminGeoZonesWidget())),
           RepaintBoundary(child: _TabContent(child: AdminProvidersWidget())),
           RepaintBoundary(child: _TabContent(child: AdminUsersWidget())),
+          RepaintBoundary(child: _TabContent(child: AdminPhoneVerificationWidget())),
           RepaintBoundary(child: _TabContent(child: AdminPaymentMethodsWidget())),
           RepaintBoundary(child: _TabContent(child: AdminPaymentsWidget())),
           RepaintBoundary(child: _TabContent(child: AdminTransactionsWidget())),

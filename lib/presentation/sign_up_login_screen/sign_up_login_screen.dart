@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -31,6 +33,7 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
 
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
+  StreamSubscription<AuthState>? _authSubscription;
 
   @override
   void initState() {
@@ -51,6 +54,13 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
     if (user != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _redirectByRole());
     }
+
+    // Listen for auth state changes (handles OAuth browser redirect callback)
+    _authSubscription = SupabaseService.instance.authStateChanges.listen((data) {
+      if (data.event == AuthChangeEvent.signedIn && mounted) {
+        _redirectByRole();
+      }
+    });
   }
 
   Future<void> _loadAppSettings() async {
@@ -66,6 +76,7 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
 
   @override
   void dispose() {
+    _authSubscription?.cancel();
     _fadeController.dispose();
     super.dispose();
   }

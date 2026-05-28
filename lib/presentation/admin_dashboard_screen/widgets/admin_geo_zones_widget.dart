@@ -230,7 +230,7 @@ class _AdminGeoZonesWidgetState extends State<AdminGeoZonesWidget> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(l.t('confirm_delete')),
-        content: const Text('Are you sure you want to delete this geo zone?'),
+        content: Text(l.t('delete_geo_zone_confirmation')),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),

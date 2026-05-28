@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../theme/app_theme.dart';
 import '../../../services/localization_service.dart';
+import '../../../services/supabase_service.dart';
 
 class AdminUsersWidget extends StatefulWidget {
   const AdminUsersWidget({super.key});
@@ -155,6 +156,94 @@ class _AdminUsersWidgetState extends State<AdminUsersWidget> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error: $e'),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteUser(Map<String, dynamic> user) async {
+    final l = LocalizationService.instance;
+    final userId = user['id'] as String;
+    final userEmail = user['email'] as String? ?? 'Unknown';
+    final role = user['role'] as String? ?? 'customer';
+
+    // Prevent deleting admins (optional safety measure)
+    if (role == 'admin') {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Cannot delete admin users'),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          l.t('delete_user_confirmation') ?? 'Delete User?',
+          style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
+        ),
+        content: Text(
+          l.t('delete_user_with_email').replaceAll('{email}', userEmail),
+          style: GoogleFonts.manrope(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(l.t('cancel'), style: GoogleFonts.manrope()),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
+            child: Text(
+              l.t('delete'),
+              style: GoogleFonts.manrope(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // Delete from auth.users via RPC (runs with service role privileges)
+      await SupabaseService.instance.client.rpc('admin_delete_user', params: {'user_id': userId});
+
+      // Remove from local list
+      setState(() {
+        _users.removeWhere((u) => u['id'] == userId);
+        _isLoading = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l.t('user_deleted') ?? 'User deleted successfully'),
+            backgroundColor: AppTheme.success,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error deleting user: $e');
+      setState(() {
+        _isLoading = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${l.t('error_deleting_user') ?? 'Error deleting user'}: $e'),
             backgroundColor: AppTheme.error,
           ),
         );
@@ -549,10 +638,41 @@ class _AdminUsersWidgetState extends State<AdminUsersWidget> {
                         ],
                       ),
                       const SizedBox(width: 8),
-                      const Icon(
-                        Icons.chevron_right,
-                        size: 18,
-                        color: AppTheme.muted,
+                      PopupMenuButton<String>(
+                        icon: const Icon(
+                          Icons.more_vert,
+                          size: 20,
+                          color: AppTheme.muted,
+                        ),
+                        onSelected: (value) {
+                          if (value == 'view') {
+                            _showUserDetail(u);
+                          } else if (value == 'delete') {
+                            _deleteUser(u);
+                          }
+                        },
+                        itemBuilder: (context) => [
+                          PopupMenuItem(
+                            value: 'view',
+                            child: Row(
+                              children: [
+                                Icon(Icons.visibility_outlined, size: 18, color: AppTheme.primary),
+                                const SizedBox(width: 8),
+                                Text(l.t('view_details') ?? 'View Details', style: GoogleFonts.manrope()),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'delete',
+                            child: Row(
+                              children: [
+                                Icon(Icons.delete_outline, size: 18, color: AppTheme.error),
+                                const SizedBox(width: 8),
+                                Text(l.t('delete_user') ?? 'Delete User', style: GoogleFonts.manrope(color: AppTheme.error)),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

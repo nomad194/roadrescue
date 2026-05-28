@@ -524,7 +524,7 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Est. Value',
+                          l.t('est_value'),
                           style: GoogleFonts.manrope(
                             fontSize: 10,
                             color: AppTheme.muted,

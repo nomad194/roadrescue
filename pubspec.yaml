@@ -21,6 +21,7 @@ dependencies:
   web: ^1.1.1
   
   # Feature dependencies - safe to modify
+  geolocator: ^13.0.1       # GPS location services
   cached_network_image: ^3.3.1
   google_sign_in: ^6.2.1
   sign_in_with_apple: ^6.1.0

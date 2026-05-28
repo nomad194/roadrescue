@@ -4,7 +4,6 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -16,9 +15,6 @@ class AuthSocialService {
   AuthSocialService._();
 
   final SupabaseClient _client = SupabaseService.instance.client;
-
-  // Google Sign-In instance
-  GoogleSignIn? _googleSignIn;
 
   /// Generate a cryptographically secure nonce for Apple Sign In
   String _generateNonce() {
@@ -34,51 +30,18 @@ class AuthSocialService {
     return digest.toString();
   }
 
-  /// Initialize Google Sign-In
-  void _initGoogleSignIn() {
-    _googleSignIn ??= GoogleSignIn(
-      scopes: ['email', 'openid'],
-    );
-  }
-
-  /// Sign in with Google using native SDK
-  /// Returns AuthResponse on success, throws exception on failure
-  Future<AuthResponse> signInWithGoogle() async {
+  /// Sign in with Google using Supabase OAuth browser flow
+  /// Returns true if the OAuth flow was launched successfully.
+  /// Profile is created via auth state listener after redirect.
+  Future<bool> signInWithGoogle() async {
     try {
-      _initGoogleSignIn();
-
-      // Trigger Google Sign-In flow
-      final GoogleSignInAccount? googleUser = await _googleSignIn!.signIn();
-
-      if (googleUser == null) {
-        throw Exception('Google sign in was cancelled');
-      }
-
-      // Get authentication details
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-
-      // Get ID token
-      final String? idToken = googleAuth.idToken;
-
-      if (idToken == null) {
-        throw Exception('Failed to get Google ID token');
-      }
-
-      // Sign in to Supabase with the ID token
-      final response = await _client.auth.signInWithIdToken(
-        provider: OAuthProvider.google,
-        idToken: idToken,
-        accessToken: googleAuth.accessToken,
+      debugPrint('Google sign in: launching OAuth browser flow');
+      final success = await _client.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: _getRedirectUrl(),
+        authScreenLaunchMode: LaunchMode.externalApplication,
       );
-
-      // Ensure user profile exists after social login
-      await _ensureUserProfileAfterSocialLogin(
-        user: response.user,
-        email: googleUser.email,
-        fullName: googleUser.displayName ?? '',
-      );
-
-      return response;
+      return success;
     } on AuthException catch (e) {
       debugPrint('Google sign in AuthException: ${e.message}');
       rethrow;
@@ -168,11 +131,9 @@ class AuthSocialService {
   String _getRedirectUrl() {
     if (kIsWeb) {
       return '${Uri.base.origin}/auth/callback';
-    } else if (Platform.isAndroid) {
-      // Android custom scheme
-      return 'io.supabase.roadrescue://login-callback';
-    } else if (Platform.isIOS) {
-      // iOS custom scheme
+    } else if (Platform.isAndroid || Platform.isIOS) {
+      // Deep link back to app after OAuth
+      // Must match AndroidManifest.xml intent-filter and Supabase Redirect URLs
       return 'io.supabase.roadrescue://login-callback';
     }
     return '';
@@ -224,11 +185,6 @@ class AuthSocialService {
   /// Sign out from all social providers
   Future<void> signOut() async {
     try {
-      // Sign out from Google
-      if (_googleSignIn != null) {
-        await _googleSignIn!.signOut();
-      }
-
       // Sign out from Supabase (handles all providers)
       await SupabaseService.instance.signOut();
     } catch (e) {

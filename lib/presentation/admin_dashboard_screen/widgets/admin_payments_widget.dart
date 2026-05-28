@@ -1156,8 +1156,8 @@ class _AdminPaymentsWidgetState extends State<AdminPaymentsWidget>
         return await showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('Delete Plan?'),
-            content: const Text('This cannot be undone.'),
+            title: Text(l.t('delete_plan_confirmation') ?? 'Delete Plan?'),
+            content: Text(l.t('cannot_be_undone')),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),

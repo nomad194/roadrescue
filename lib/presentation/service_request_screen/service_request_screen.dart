@@ -29,6 +29,11 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
   String _urgencyLevel = 'standard';
   bool _isSubmitting = false;
 
+  // GPS location state
+  double? _locationLat;
+  double? _locationLng;
+  String? _locationAddress;
+
   // Active help request state (backed by real DB)
   ActiveHelpRequest? _activeRequest;
   RealtimeChannel? _requestSubscription;
@@ -289,11 +294,13 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
         serviceType: _selectedCategoryLabel,
         serviceIcon: serviceIcon,
         vehicleSize: _selectedVehicleSize ?? '',
-        address: '4721 Maple Ave, Austin, TX',
+        address: _locationAddress ?? '',
         description: _descriptionController.text.isNotEmpty
             ? _descriptionController.text
-            : 'No additional details provided.',
+            : l.t('no_additional_details'),
         urgency: _urgencyLevel,
+        customerLat: _locationLat,
+        customerLng: _locationLng,
       );
 
       final newRequest = _mapToActiveRequest(data);
@@ -526,7 +533,13 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
   Map<String, dynamic> _getVehicleImagesForCategory() {
     if (_selectedCategory == null) return {};
     
-    final category = _selectedCategory as Map<dynamic, dynamic>;
+    // Look up category from _dynamicCategories using the ID
+    final category = _dynamicCategories.firstWhere(
+      (c) => c['id']?.toString() == _selectedCategory,
+      orElse: () => {},
+    );
+    if (category.isEmpty) return {};
+    
     final rawImages = category['vehicle_size_images'];
     if (rawImages == null) return {};
     
@@ -668,7 +681,15 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const LocationCardWidget(),
+            LocationCardWidget(
+              onLocationDetected: (lat, lng, address) {
+                setState(() {
+                  _locationLat = lat;
+                  _locationLng = lng;
+                  _locationAddress = address;
+                });
+              },
+            ),
             const SizedBox(height: 20),
             _buildSectionHeader(
               l.t('what_do_you_need'),
@@ -680,7 +701,7 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 40),
                 child: Center(
                   child: Text(
-                    'No services currently available',
+                    l.t('no_services_available'),
                     style: GoogleFonts.manrope(
                       color: AppTheme.onSurfaceVariant,
                       fontSize: 14,
@@ -855,7 +876,7 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
                       padding: const EdgeInsets.symmetric(vertical: 40),
                       child: Center(
                         child: Text(
-                          'No services currently available',
+                          l.t('no_services_available'),
                           style: GoogleFonts.manrope(
                             color: AppTheme.onSurfaceVariant,
                             fontSize: 14,
@@ -885,7 +906,15 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
             child: SingleChildScrollView(
               child: Column(
                 children: [
-                  const LocationCardWidget(),
+                  LocationCardWidget(
+                    onLocationDetected: (lat, lng, address) {
+                      setState(() {
+                        _locationLat = lat;
+                        _locationLng = lng;
+                        _locationAddress = address;
+                      });
+                    },
+                  ),
                   const SizedBox(height: 16),
                   RequestFormWidget(
                     controller: _descriptionController,

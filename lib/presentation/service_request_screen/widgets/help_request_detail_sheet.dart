@@ -124,8 +124,8 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
           .eq('id', widget.request.id);
 
       await NotificationService.instance.showLocalNotification(
-        title: '✅ Quote Accepted (COD)',
-        body: 'Your quote has been accepted. Order confirmed (COD).',
+        title: l.t('quote_accepted_cod_notif'),
+        body: l.t('quote_accepted_cod_notif_body'),
         payload: 'booking_confirmed_cod',
       );
 
@@ -143,15 +143,15 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
             'providerName': widget.request.providerName ?? '',
             'providerBusiness': widget.request.providerBusiness ?? '',
             'providerPhone': widget.request.providerPhone ?? '',
-            'paymentMethod': 'Cash on Delivery',
-            'customerName': 'Customer',
+            'paymentMethod': l.t('cash_on_delivery_payment'),
+            'customerName': l.t('customer'),
           },
         );
       } else {
         messenger.showSnackBar(
           SnackBar(
             content: Text(
-              'Order confirmed! Provider notified (COD).',
+              l.t('order_confirmed_cod'),
               style: GoogleFonts.manrope(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -210,16 +210,21 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
   }
 
   void _openWhatsApp() {
+    final l = LocalizationService.instance;
     final phone =
         widget.request.providerPhone?.replaceAll(RegExp(r'[^\d+]'), '') ?? '';
     final message = Uri.encodeComponent(
-      'Hi ${widget.request.providerName ?? 'there'}, I\'m the customer for booking #${widget.request.id.substring(0, 8)} (${widget.request.serviceType}). I\'m at ${widget.request.address}.',
+      l.t('whatsapp_message_template')
+          .replaceAll('{name}', widget.request.providerName ?? 'there')
+          .replaceAll('{id}', widget.request.id.substring(0, 8))
+          .replaceAll('{service}', widget.request.serviceType)
+          .replaceAll('{address}', widget.request.address),
     );
     final url = 'https://wa.me/$phone?text=$message';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'Opening WhatsApp to chat with ${widget.request.providerName ?? 'your provider'}...',
+          l.t('opening_whatsapp').replaceAll('{name}', widget.request.providerName ?? 'your provider'),
           style: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600),
         ),
         backgroundColor: const Color(0xFF25D366),
@@ -294,7 +299,10 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                   _buildInfoRow(
                     Icons.description_outlined,
                     AppTheme.primary,
-                    widget.request.description,
+                    widget.request.description?.isNotEmpty == true &&
+                        widget.request.description != 'No additional details provided.'
+                        ? widget.request.description
+                        : l.t('no_additional_details'),
                   ),
                   if (_isConfirmed && widget.request.providerName != null) ...[
                     const SizedBox(height: 20),
@@ -313,7 +321,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                   ],
                   const SizedBox(height: 20),
                   Text(
-                    'Suggested Next Steps',
+                    l.t('suggested_next_steps'),
                     style: GoogleFonts.manrope(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
@@ -368,7 +376,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Choose Payment Method',
+          l.t('choose_payment_method'),
           style: GoogleFonts.manrope(
             fontSize: 14,
             fontWeight: FontWeight.w700,
@@ -377,7 +385,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
         ),
         const SizedBox(height: 4),
         Text(
-          'Select how you\'d like to pay for this service',
+          l.t('choose_payment_method_desc'),
           style: GoogleFonts.manrope(fontSize: 12, color: AppTheme.muted),
         ),
         const SizedBox(height: 12),
@@ -397,7 +405,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                     )
                   : const Icon(Icons.credit_card_rounded, size: 20),
               label: Text(
-                'Pay Online · \$${widget.request.quotedPrice!.toStringAsFixed(2)}',
+                '${l.t('pay_online')} · \$${widget.request.quotedPrice!.toStringAsFixed(2)}',
                 style: GoogleFonts.manrope(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
@@ -423,7 +431,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
               onPressed: _acceptingQuote ? null : _acceptWithCOD,
               icon: const Icon(Icons.payments_outlined, size: 20),
               label: Text(
-                'Cash on Delivery · \$${widget.request.quotedPrice!.toStringAsFixed(2)}',
+                '${l.t('cash_on_delivery')} · \$${widget.request.quotedPrice!.toStringAsFixed(2)}',
                 style: GoogleFonts.manrope(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -457,7 +465,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'No payment methods available. Contact provider.',
+                    l.t('no_payment_methods'),
                     style: GoogleFonts.manrope(
                       fontSize: 13,
                       color: AppTheme.warning,
@@ -473,92 +481,86 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
   }
 
   List<Map<String, dynamic>> get _nextSteps {
+    final l = LocalizationService.instance;
     switch (widget.request.status) {
       case HelpRequestStatus.pending:
         return [
           {
             'icon': Icons.wifi_tethering_rounded,
-            'title': 'Stay connected',
-            'desc': 'Keep your phone nearby — providers will respond shortly.',
+            'title': l.t('stay_connected'),
+            'desc': l.t('stay_connected_desc'),
           },
           {
             'icon': Icons.location_on_rounded,
-            'title': 'Stay at your location',
-            'desc':
-                'Remain with your vehicle so the provider can find you easily.',
+            'title': l.t('stay_at_location'),
+            'desc': l.t('stay_at_location_desc'),
           },
           {
             'icon': Icons.notifications_active_rounded,
-            'title': 'Watch for quotes',
-            'desc':
-                'You\'ll be notified when a provider sends you a price quote.',
+            'title': l.t('watch_for_quotes'),
+            'desc': l.t('watch_for_quotes_desc'),
           },
           {
             'icon': Icons.security_rounded,
-            'title': 'Stay safe',
-            'desc':
-                'If on a highway, turn on hazard lights and stay off the road.',
+            'title': l.t('stay_safe'),
+            'desc': l.t('stay_safe_desc'),
           },
         ];
       case HelpRequestStatus.quoted:
         return [
           {
             'icon': Icons.request_quote_rounded,
-            'title': 'Review the quote',
-            'desc': 'Check the provider\'s price and estimated arrival time.',
+            'title': l.t('review_quote'),
+            'desc': l.t('review_quote_desc'),
           },
           {
             'icon': Icons.payment_rounded,
-            'title': 'Choose payment method',
-            'desc': 'Pay online via card or choose Cash on Delivery.',
+            'title': l.t('choose_payment_method_step'),
+            'desc': l.t('choose_payment_method_step_desc'),
           },
           {
             'icon': Icons.check_circle_outline_rounded,
-            'title': 'Confirm your booking',
-            'desc':
-                'Once payment is processed, your booking will be confirmed.',
+            'title': l.t('confirm_booking'),
+            'desc': l.t('confirm_booking_desc'),
           },
         ];
       case HelpRequestStatus.accepted:
         return [
           {
             'icon': Icons.hourglass_empty_rounded,
-            'title': 'Waiting for Provider',
-            'desc': 'Your provider has been notified. They will start heading to you shortly.',
+            'title': l.t('waiting_for_provider'),
+            'desc': l.t('waiting_for_provider_desc'),
           },
           {
             'icon': Icons.chat_rounded,
-            'title': 'Chat via WhatsApp',
-            'desc': 'You can coordinate directly with your provider while you wait.',
+            'title': l.t('chat_whatsapp'),
+            'desc': l.t('chat_whatsapp_desc'),
           },
         ];
       case HelpRequestStatus.enRoute:
         return [
           {
             'icon': Icons.directions_car_rounded,
-            'title': 'Provider is on the way',
-            'desc':
-                'Your provider is heading to your location. ETA: ${widget.request.etaMinutes ?? '—'} min.',
+            'title': l.t('provider_on_way_step'),
+            'desc': l.t('provider_on_way_step_desc').replaceAll('{eta}', widget.request.etaMinutes?.toString() ?? '—'),
           },
           {
             'icon': Icons.chat_rounded,
-            'title': 'Chat via WhatsApp',
-            'desc':
-                'Use the WhatsApp button below to coordinate directly with your provider.',
+            'title': l.t('chat_whatsapp_button'),
+            'desc': l.t('chat_whatsapp_button_desc'),
           },
           {
             'icon': Icons.location_on_rounded,
-            'title': 'Stay visible',
-            'desc':
-                'Turn on hazard lights and stay near your vehicle for easy identification.',
+            'title': l.t('stay_visible'),
+            'desc': l.t('stay_visible_desc'),
           },
         ];
       case HelpRequestStatus.cancelled:
         return [
           {
             'icon': Icons.refresh_rounded,
-            'title': 'Submit a new request',
-            'desc': 'You can submit a new help request at any time.',
+            'title': l.t('submit_new_request'),
+            'desc': l.t('submit_new_request_desc'),
           },
         ];
       case HelpRequestStatus.awaitingConfirmation:
@@ -566,24 +568,24 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
         return [
           {
             'icon': Icons.help_outline_rounded,
-            'title': 'Confirmation Needed',
-            'desc': 'Please confirm if the service has been completed by the provider.',
+            'title': l.t('confirmation_needed'),
+            'desc': l.t('confirmation_needed_desc'),
           },
         ];
       case HelpRequestStatus.disputed:
         return [
           {
             'icon': Icons.gavel_rounded,
-            'title': 'Job Under Review',
-            'desc': 'There is a disagreement about the completion. Admin is reviewing.',
+            'title': l.t('job_under_review'),
+            'desc': l.t('job_under_review_desc'),
           },
         ];
       case HelpRequestStatus.completed:
         return [
           {
             'icon': Icons.check_circle_rounded,
-            'title': 'Job Completed',
-            'desc': 'Thank you for using RoadRescue! Please leave a review.',
+            'title': l.t('job_completed_step'),
+            'desc': l.t('job_completed_step_desc'),
           },
         ];
     }
@@ -700,7 +702,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                 ),
                 if (widget.request.etaMinutes != null)
                   Text(
-                    'ETA: ${widget.request.etaMinutes} min',
+                    l.t('eta_min_step').replaceAll('{eta}', widget.request.etaMinutes.toString()),
                     style: GoogleFonts.manrope(
                       fontSize: 12,
                       color: AppTheme.primary,
@@ -796,7 +798,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                 ),
                 const SizedBox(width: 5),
                 Text(
-                  'ETA: ${widget.request.etaMinutes} minutes',
+                  l.t('eta_minutes_step').replaceAll('{eta}', widget.request.etaMinutes.toString()),
                   style: GoogleFonts.manrope(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -823,7 +825,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
           Icon(Icons.attach_money_rounded, color: AppTheme.primary, size: 18),
           const SizedBox(width: 6),
           Text(
-            _isConfirmed ? 'Agreed Price' : 'Quoted Price',
+            _isConfirmed ? l.t('agreed_price') : l.t('quoted_price'),
             style: GoogleFonts.manrope(
               fontSize: 13,
               color: AppTheme.onSurfaceVariant,
@@ -915,7 +917,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
         onPressed: _openWhatsApp,
         icon: const Icon(Icons.chat_rounded, size: 18),
         label: Text(
-          'Chat with Provider on WhatsApp',
+          l.t('chat_with_provider_whatsapp'),
           style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w700),
         ),
         style: ElevatedButton.styleFrom(
@@ -1086,9 +1088,10 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
       widget.onRefresh?.call();
 
       if (mounted) {
+        final l = LocalizationService.instance;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Response submitted successfully'),
+          SnackBar(
+            content: Text(l.t('response_submitted')),
             backgroundColor: AppTheme.success,
             behavior: SnackBarBehavior.floating,
           ),
@@ -1096,9 +1099,10 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
       }
     } catch (e) {
       if (mounted) {
+        final l = LocalizationService.instance;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: ${e.toString()}'),
+            content: Text('${l.t('error')}: ${e.toString()}'),
             backgroundColor: AppTheme.error,
             behavior: SnackBarBehavior.floating,
           ),

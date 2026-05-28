@@ -31,6 +31,16 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
   bool _isLoadingSubscription = true;
   String _subscriptionStatus = 'inactive'; // from provider_subscription_state
 
+  // Performance stats
+  int _completedJobs = 0;
+  double _averageRating = 0.0;
+  int _totalReviews = 0;
+  double _acceptanceRate = 0.0;
+  bool _isLoadingStats = true;
+
+  // Notification settings
+  bool _notificationsEnabled = true;
+
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
@@ -60,6 +70,8 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
     _loadProviderGeoSettings();
     _loadDistanceUnit();
     _loadSubscription();
+    _loadProviderStats();
+    _loadNotificationPreference();
   }
 
   Future<void> _loadSubscription() async {
@@ -82,6 +94,142 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
       debugPrint('Error loading subscription: $e');
       if (mounted) setState(() => _isLoadingSubscription = false);
     }
+  }
+
+  Future<void> _loadProviderStats() async {
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) return;
+
+    setState(() => _isLoadingStats = true);
+    try {
+      // Get rating data
+      final ratingData = await SupabaseService.instance.getProviderRating(userId);
+      
+      // Get completed jobs count
+      final completedJobsResponse = await SupabaseService.instance.client
+          .from('job_requests')
+          .select('id')
+          .eq('provider_id', userId)
+          .eq('job_status', 'completed');
+      
+      // Get total jobs quoted and accepted to calculate acceptance rate
+      final quotedJobsResponse = await SupabaseService.instance.client
+          .from('job_requests')
+          .select('id, job_status')
+          .eq('provider_id', userId)
+          .or('job_status.eq.accepted,job_status.eq.en_route,job_status.eq.completed,job_status.eq.cancelled');
+      
+      int quotedCount = quotedJobsResponse.length;
+      int acceptedCount = quotedJobsResponse.where((j) => 
+          ['accepted', 'en_route', 'completed'].contains(j['job_status'])).length;
+      
+      double acceptanceRate = quotedCount > 0 
+          ? (acceptedCount / quotedCount * 100) 
+          : 0.0;
+
+      if (mounted) {
+        setState(() {
+          _completedJobs = completedJobsResponse.length;
+          _averageRating = ratingData['average_rating'] as double? ?? 0.0;
+          _totalReviews = ratingData['total_reviews'] as int? ?? 0;
+          _acceptanceRate = acceptanceRate;
+          _isLoadingStats = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading provider stats: $e');
+      if (mounted) setState(() => _isLoadingStats = false);
+    }
+  }
+
+  Future<void> _loadNotificationPreference() async {
+    try {
+      final response = await SupabaseService.instance.client
+          .from('app_settings')
+          .select('setting_value')
+          .eq('setting_key', 'notifications_enabled')
+          .maybeSingle();
+      
+      if (response != null && mounted) {
+        setState(() {
+          _notificationsEnabled = response['setting_value'] == 'true';
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading notification preference: $e');
+    }
+  }
+
+  Future<void> _saveNotificationPreference(bool enabled) async {
+    try {
+      await SupabaseService.instance.client
+          .from('app_settings')
+          .upsert({
+            'setting_key': 'notifications_enabled',
+            'setting_value': enabled.toString(),
+          });
+      if (mounted) {
+        setState(() => _notificationsEnabled = enabled);
+      }
+    } catch (e) {
+      debugPrint('Error saving notification preference: $e');
+    }
+  }
+
+  void _showNotificationSettings() {
+    final l = LocalizationService.instance;
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(l.t('notifications')),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    l.t('enable_notifications'),
+                    style: GoogleFonts.manrope(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Switch(
+                    value: _notificationsEnabled,
+                    onChanged: (value) {
+                      setDialogState(() => _notificationsEnabled = value);
+                      _saveNotificationPreference(value);
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                l.t('receive_notifications_for'),
+                style: GoogleFonts.manrope(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${l.t('notif_new_job_requests')}\n${l.t('notif_quote_acceptances')}\n${l.t('notif_payment_confirmations')}\n${l.t('notif_job_status_updates')}',
+                style: GoogleFonts.manrope(fontSize: 13),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(l.t('close')),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showPlanPurchaseDialog() {
@@ -1388,21 +1536,21 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
           Row(
             children: [
               _buildStatItem(
-                '47',
+                _isLoadingStats ? '...' : _completedJobs.toString(),
                 l.t('jobs_done'),
                 AppTheme.primary,
                 AppTheme.primaryContainer,
               ),
               const SizedBox(width: 10),
               _buildStatItem(
-                '4.9',
+                _isLoadingStats ? '...' : _averageRating.toStringAsFixed(1),
                 l.t('rating'),
                 AppTheme.warning,
                 AppTheme.warningContainer,
               ),
               const SizedBox(width: 10),
               _buildStatItem(
-                '98%',
+                _isLoadingStats ? '...' : '${_acceptanceRate.toStringAsFixed(0)}%',
                 l.t('accept_rate'),
                 AppTheme.success,
                 AppTheme.successContainer,
@@ -1507,7 +1655,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
             Icons.notifications_outlined,
             l.t('notifications'),
             AppTheme.primary,
-            () {},
+            () => _showNotificationSettings(),
           ),
           const Divider(height: 1, color: AppTheme.outlineVariant),
           _buildActionRow(

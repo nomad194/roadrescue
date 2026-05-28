@@ -35,17 +35,9 @@ class _SocialLoginWidgetState extends State<SocialLoginWidget> {
     });
 
     try {
-      final response = await AuthSocialService.instance.signInWithGoogle();
-
-      if (response.user != null && mounted) {
-        // Update role if provided during signup
-        if (widget.selectedRole != null) {
-          await _updateUserRole(response.user!.id, widget.selectedRole!);
-        }
-
-        // Check phone verification and redirect
-        await _redirectAfterLogin(response.user!.id);
-      }
+      // Launches browser OAuth flow - auth state change handled by sign_up_login_screen
+      await AuthSocialService.instance.signInWithGoogle();
+      // Loading state cleared when user returns from browser or on error
     } on AuthException catch (e) {
       if (mounted) {
         _showError(e.message);

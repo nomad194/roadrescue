@@ -8,6 +8,7 @@ class AppEnv {
   static String supabaseUrl = '';
   static String supabaseAnonKey = '';
   static String stripePublishableKey = '';
+  static String googleWebClientId = '';
 
   static bool get hasSupabaseCredentials =>
       supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty;
@@ -17,11 +18,13 @@ class AppEnv {
     const urlFromDefine = String.fromEnvironment('SUPABASE_URL');
     const anonFromDefine = String.fromEnvironment('SUPABASE_ANON_KEY');
     const stripeFromDefine = String.fromEnvironment('STRIPE_PUBLISHABLE_KEY');
+    const googleWebClientIdFromDefine = String.fromEnvironment('GOOGLE_WEB_CLIENT_ID');
 
     if (urlFromDefine.isNotEmpty && anonFromDefine.isNotEmpty) {
       supabaseUrl = urlFromDefine;
       supabaseAnonKey = anonFromDefine;
       stripePublishableKey = stripeFromDefine;
+      googleWebClientId = googleWebClientIdFromDefine;
       debugPrint('AppEnv: loaded from dart-define');
       return;
     }
@@ -32,6 +35,7 @@ class AppEnv {
       supabaseUrl = map['SUPABASE_URL'] as String? ?? '';
       supabaseAnonKey = map['SUPABASE_ANON_KEY'] as String? ?? '';
       stripePublishableKey = map['STRIPE_PUBLISHABLE_KEY'] as String? ?? '';
+      googleWebClientId = map['GOOGLE_WEB_CLIENT_ID'] as String? ?? '';
       if (hasSupabaseCredentials) {
         debugPrint('AppEnv: loaded from bundled env.json');
       }

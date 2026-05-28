@@ -71,7 +71,7 @@ class SupabaseService {
 
   // ─── JOBS ────────────────────────────────────────────────────────────────
 
-  Future<List<Map<String, dynamic>>> getProviderJobRequests({List<String>? categories}) async {
+  Future<List<Map<String, dynamic>>> getProviderJobRequests({List<String>? categoryIds}) async {
     final userId = currentUser?.id;
     if (userId == null) return [];
 
@@ -80,16 +80,22 @@ class SupabaseService {
       final profile = await getUserProfile(userId);
       final providerStateId = profile?['selected_state_id'] as String?;
       final providerCityId = profile?['selected_city_id'] as String?;
-      final providerLat = profile?['address_lat'] as double?;
-      final providerLng = profile?['address_lng'] as double?;
+      final providerLat = (profile?['address_lat'] as num?)?.toDouble();
+      final providerLng = (profile?['address_lng'] as num?)?.toDouble();
       final serviceRange = (profile?['service_range_miles'] as num?)?.toDouble() ?? AppConstants.defaultServiceRangeMiles;
+
+      debugPrint('=== Provider Job Requests Debug ===');
+      debugPrint('Provider ID: $userId');
+      debugPrint('Provider state_id: $providerStateId, city_id: $providerCityId');
+      debugPrint('Provider coords: ($providerLat, $providerLng)');
+      debugPrint('Service range: $serviceRange miles');
+      debugPrint('Filtering by categoryIds: $categoryIds');
 
       // First, fetch jobs already assigned to this provider (always show these)
       final assignedJobsQuery = client
           .from('job_requests')
           .select('*, customer:customer_id(full_name, phone, avatar_url, address_lat, address_lng, selected_city_id, selected_state_id)')
           .eq('provider_id', userId)
-          .neq('job_status', 'completed')
           .neq('job_status', 'cancelled');
       
       // Then fetch pending jobs that might be in range
@@ -102,47 +108,71 @@ class SupabaseService {
           .isFilter('provider_id', null)
           .gte('created_at', staleThreshold);
       
-      // Apply category filter if specified
-      if (categories != null && categories.isNotEmpty) {
-        final catList = categories.map((c) => '"$c"').join(',');
-        pendingQuery = pendingQuery.filter('service_type', 'in', '($catList)');
-      }
-      
-      // Apply geo zone filter if provider has state/city selected
-      if (providerStateId != null && providerCityId != null) {
-        pendingQuery = pendingQuery
-            .eq('customer_state_id', providerStateId)
-            .eq('customer_city_id', providerCityId);
-      }
+      // No DB-level category or geo filtering — both done post-fetch
+      // to avoid locale mismatch on service_type names
 
       // Execute both queries
       final assignedResponse = await assignedJobsQuery.order('created_at', ascending: false);
       final pendingResponse = await pendingQuery.order('created_at', ascending: false);
-      
+
       final assignedJobs = List<Map<String, dynamic>>.from(assignedResponse);
       var pendingJobs = List<Map<String, dynamic>>.from(pendingResponse);
-      
+
+      // Post-fetch category filter using all name translations to avoid locale mismatch
+      if (categoryIds != null && categoryIds.isNotEmpty) {
+        final allCats = await getServiceCategories();
+        final enabledCats = allCats.where((c) => categoryIds.contains(c['id']?.toString())).toList();
+        final Set<String> allowedNames = {};
+        for (final cat in enabledCats) {
+          final baseName = cat['name'] as String?;
+          if (baseName != null) allowedNames.add(baseName.toLowerCase());
+          final translationsRaw = cat['name_translations'];
+          Map<String, dynamic> translations = {};
+          if (translationsRaw is Map) {
+            translations = Map<String, dynamic>.from(translationsRaw);
+          }
+          for (final val in translations.values) {
+            if (val is String) allowedNames.add(val.toLowerCase());
+          }
+        }
+        debugPrint('Allowed service_type names for matching: $allowedNames');
+        pendingJobs = pendingJobs.where((job) {
+          final st = (job['service_type'] as String? ?? '').toLowerCase();
+          final matches = allowedNames.contains(st);
+          if (!matches) debugPrint('Job ${job["id"]}: service_type "$st" not in enabled categories, excluding');
+          return matches;
+        }).toList();
+      }
+
       // Post-process pending jobs: filter by distance if provider has coordinates
       if (providerLat != null && providerLng != null) {
         pendingJobs = pendingJobs.where((job) {
-          final jobLat = job['customer_lat'] as double?;
-          final jobLng = job['customer_lng'] as double?;
-          
+          final jobLat = (job['customer_lat'] as num?)?.toDouble();
+          final jobLng = (job['customer_lng'] as num?)?.toDouble();
+
           // Only include if job has coordinates within range
           if (jobLat != null && jobLng != null) {
             final distance = _calculateDistance(providerLat, providerLng, jobLat, jobLng);
             debugPrint('Job ${job['id']}: distance=${distance.toStringAsFixed(2)} miles, range=$serviceRange miles');
             return distance <= serviceRange;
           }
-          
-          // No coordinates on job — already passed city/state DB filter, include it
-          debugPrint('Job ${job['id']}: no coordinates, passing via city/state match');
-          return true;
+
+          // No coordinates on job — can't match, exclude it
+          debugPrint('Job ${job['id']}: no GPS coordinates, excluding');
+          return false;
         }).toList();
+      } else {
+        // Provider has no coordinates — can't do distance-based matching
+        // Provider must set their address in profile to receive job requests
+        debugPrint('Provider has no coordinates set in profile — cannot match jobs by distance');
+        pendingJobs = []; // Clear pending jobs since we can't match them
       }
 
       // Combine: assigned jobs first, then pending jobs in range
-      return [...assignedJobs, ...pendingJobs];
+      final combinedJobs = [...assignedJobs, ...pendingJobs];
+      debugPrint('Final job count: ${combinedJobs.length} (assigned: ${assignedJobs.length}, pending: ${pendingJobs.length})');
+      debugPrint('=== End Provider Job Requests Debug ===');
+      return combinedJobs;
     } catch (e) {
       debugPrint('Error fetching jobs: $e');
       return [];
@@ -256,6 +286,8 @@ class SupabaseService {
     required String address,
     required String description,
     required String urgency,
+    double? customerLat,
+    double? customerLng,
   }) async {
     final userId = currentUser?.id;
     if (userId == null) throw Exception('Not authenticated');
@@ -264,9 +296,17 @@ class SupabaseService {
     final profile = await getUserProfile(userId);
     final customerStateId = profile?['selected_state_id'] as String?;
     final customerCityId = profile?['selected_city_id'] as String?;
-    final customerLat = (profile?['address_lat'] as num?)?.toDouble();
-    final customerLng = (profile?['address_lng'] as num?)?.toDouble();
+    final profileLat = (profile?['address_lat'] as num?)?.toDouble();
+    final profileLng = (profile?['address_lng'] as num?)?.toDouble();
     final profileAddress = profile?['address'] as String?;
+
+    // Prefer live GPS coords; fall back to profile coords
+    final resolvedLat = customerLat ?? profileLat;
+    final resolvedLng = customerLng ?? profileLng;
+    // Prefer live GPS address; fall back to profile address
+    final resolvedAddress = address.isNotEmpty
+        ? address
+        : (profileAddress?.isNotEmpty == true ? profileAddress! : '');
 
     final response = await client
         .from('job_requests')
@@ -275,14 +315,14 @@ class SupabaseService {
           'service_type': serviceType,
           'service_icon': serviceIcon,
           'vehicle_size': vehicleSize,
-          'address': profileAddress?.isNotEmpty == true ? profileAddress : address,
+          'address': resolvedAddress,
           'description': description,
           'urgency': urgency,
           'job_status': 'pending',
           if (customerStateId != null) 'customer_state_id': customerStateId,
           if (customerCityId != null) 'customer_city_id': customerCityId,
-          if (customerLat != null) 'customer_lat': customerLat,
-          if (customerLng != null) 'customer_lng': customerLng,
+          if (resolvedLat != null) 'customer_lat': resolvedLat,
+          if (resolvedLng != null) 'customer_lng': resolvedLng,
         })
         .select()
         .single();

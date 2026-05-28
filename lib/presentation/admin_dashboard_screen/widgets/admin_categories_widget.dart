@@ -600,7 +600,7 @@ class _AdminCategoriesWidgetState extends State<AdminCategoriesWidget> {
           ),
         ),
         content: Text(
-          'Are you sure you want to delete this category?',
+          l.t('delete_category_confirmation'),
           style: GoogleFonts.manrope(
             fontSize: 14,
             color: AppTheme.onSurfaceVariant,

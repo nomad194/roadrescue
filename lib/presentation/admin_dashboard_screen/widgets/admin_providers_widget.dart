@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../theme/app_theme.dart';
 import '../../../services/localization_service.dart';
+import '../../../services/supabase_service.dart';
 
 class AdminProvidersWidget extends StatefulWidget {
   const AdminProvidersWidget({super.key});
@@ -165,6 +166,80 @@ class _AdminProvidersWidgetState extends State<AdminProvidersWidget> {
     if (date == null) return dateStr;
     final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+
+  Future<void> _deleteProvider(Map<String, dynamic> provider) async {
+    final l = LocalizationService.instance;
+    final providerId = provider['id'] as String;
+    final providerEmail = provider['email'] as String? ?? 'Unknown';
+
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          l.t('delete_provider_confirmation'),
+          style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
+        ),
+        content: Text(
+          l.t('delete_provider_with_email').replaceAll('{email}', providerEmail),
+          style: GoogleFonts.manrope(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(l.t('cancel'), style: GoogleFonts.manrope()),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
+            child: Text(
+              l.t('delete'),
+              style: GoogleFonts.manrope(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // Delete from auth.users (cascades to user_profiles via FK)
+      await SupabaseService.instance.client.auth.admin.deleteUser(providerId);
+
+      // Remove from local list
+      setState(() {
+        _providers.removeWhere((p) => p['id'] == providerId);
+        _isLoading = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l.t('provider_deleted') ?? 'Provider deleted successfully'),
+            backgroundColor: AppTheme.success,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error deleting provider: $e');
+      setState(() {
+        _isLoading = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${l.t('error_deleting_provider') ?? 'Error deleting provider'}: $e'),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+      }
+    }
   }
 
   void _showProviderDetail(Map<String, dynamic> provider) {
@@ -532,10 +607,41 @@ class _AdminProvidersWidgetState extends State<AdminProvidersWidget> {
                         ],
                       ),
                       const SizedBox(width: 8),
-                      const Icon(
-                        Icons.chevron_right,
-                        size: 18,
-                        color: AppTheme.muted,
+                      PopupMenuButton<String>(
+                        icon: const Icon(
+                          Icons.more_vert,
+                          size: 20,
+                          color: AppTheme.muted,
+                        ),
+                        onSelected: (value) {
+                          if (value == 'view') {
+                            _showProviderDetail(p);
+                          } else if (value == 'delete') {
+                            _deleteProvider(p);
+                          }
+                        },
+                        itemBuilder: (context) => [
+                          PopupMenuItem(
+                            value: 'view',
+                            child: Row(
+                              children: [
+                                Icon(Icons.visibility_outlined, size: 18, color: AppTheme.primary),
+                                const SizedBox(width: 8),
+                                Text(l.t('view_details') ?? 'View Details', style: GoogleFonts.manrope()),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'delete',
+                            child: Row(
+                              children: [
+                                Icon(Icons.delete_outline, size: 18, color: AppTheme.error),
+                                const SizedBox(width: 8),
+                                Text(l.t('delete_provider') ?? 'Delete Provider', style: GoogleFonts.manrope(color: AppTheme.error)),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

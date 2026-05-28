@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import '../../config/app_constants.dart';
 import '../../routes/app_routes.dart';
@@ -121,14 +122,8 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     if (!mounted) return;
     setState(() => _isLoading = true);
     try {
-      // Filter jobs by enabled categories
-      final activeCategoryNames = _enabledServices.map((id) {
-        final cat = _allServices.firstWhere((s) => s['id'].toString() == id);
-        return cat['name'] as String;
-      }).toList();
-
       final data = await SupabaseService.instance.getProviderJobRequests(
-        categories: activeCategoryNames,
+        categoryIds: _enabledServices.toList(),
       );
       if (mounted) {
         setState(() {
@@ -568,21 +563,52 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
       final String providerId = record['provider_id']?.toString() ?? 
                                (existingIdx != -1 ? _jobs[existingIdx].providerId ?? '' : '');
 
-      // 2. Filter by enabled categories
-      final activeCategoryNames = _enabledServices.map((id) {
-        final cat = _allServices.firstWhere((s) => s['id'].toString() == id);
-        return cat['name'] as String;
-      }).toList();
-
+      // 2. Filter by enabled categories — match service_type against all name translations
       final bool isMyJob = providerId == SupabaseService.instance.currentUser?.id;
-      final bool supportsCategory = activeCategoryNames.contains(serviceType);
+      bool supportsCategory = false;
+      for (final id in _enabledServices) {
+        final cat = _allServices.firstWhere((s) => s['id'].toString() == id, orElse: () => {});
+        if (cat.isEmpty) continue;
+        final baseName = (cat['name'] as String? ?? '').toLowerCase();
+        if (baseName == serviceType.toLowerCase()) { supportsCategory = true; break; }
+        final translationsRaw = cat['name_translations'];
+        if (translationsRaw is Map) {
+          for (final val in translationsRaw.values) {
+            if (val is String && val.toLowerCase() == serviceType.toLowerCase()) {
+              supportsCategory = true;
+              break;
+            }
+          }
+        }
+        if (supportsCategory) break;
+      }
 
       // ONLY process if we support the category OR it is already assigned to us
       if (!supportsCategory && !isMyJob) {
         return;
       }
 
-      // 3. Map and Update
+      // 3. Filter by distance if provider has coordinates
+      bool withinRange = true;
+      if (_providerLat != null && _providerLng != null) {
+        final jobLat = (record['customer_lat'] as num?)?.toDouble();
+        final jobLng = (record['customer_lng'] as num?)?.toDouble();
+        if (jobLat != null && jobLng != null) {
+          final distance = _calculateDistance(_providerLat!, _providerLng!, jobLat, jobLng);
+          withinRange = distance <= _serviceRange;
+          debugPrint('Realtime job ${record["id"]}: distance=${distance.toStringAsFixed(2)} mi, range=$_serviceRange mi, withinRange=$withinRange');
+        } else {
+          // Job has no GPS coordinates - can't verify distance, exclude it
+          withinRange = false;
+          debugPrint('Realtime job ${record["id"]}: no GPS coordinates, excluding');
+        }
+      }
+
+      if (!withinRange && !isMyJob) {
+        return;
+      }
+
+      // 4. Map and Update
       final updatedJob = _mapToJobRequestFromRecord(record);
       setState(() {
         if (existingIdx != -1) {
@@ -590,7 +616,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         } else {
           // New job incoming, silent reload to get full details
           SupabaseService.instance.getProviderJobRequests(
-            categories: activeCategoryNames.isNotEmpty ? activeCategoryNames : null,
+            categoryIds: _enabledServices.isNotEmpty ? _enabledServices.toList() : null,
           ).then((data) {
             if (mounted) {
               setState(() {
@@ -610,6 +636,18 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     final statusStr = data['job_status'] as String? ?? 'pending';
     final mappedStatus = _mapStatus(statusStr);
 
+    // Calculate actual distance from provider to customer
+    double distance = 0.0;
+    if (_providerLat != null && _providerLng != null) {
+      final customerLat = (data['customer_lat'] as num?)?.toDouble();
+      final customerLng = (data['customer_lng'] as num?)?.toDouble();
+      if (customerLat != null && customerLng != null) {
+        distance = _calculateDistance(_providerLat!, _providerLng!, customerLat, customerLng);
+      }
+    }
+    // Round to nearest whole number
+    distance = distance.roundToDouble();
+
     return _JobRequest(
       id: data['id'] as String,
       providerId: data['provider_id'] as String?,
@@ -618,7 +656,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
       driverName: customer?['full_name'] as String? ?? 'Unknown Customer',
       driverPhone: customer?['phone'] as String? ?? '',
       address: data['address'] as String? ?? '',
-      distanceMiles: 2.5,
+      distanceMiles: distance,
       description: data['description'] as String? ?? '',
       postedMinutesAgo: _minutesAgo(data['created_at'] as String?),
       urgency: data['urgency'] as String? ?? 'standard',
@@ -640,6 +678,18 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     final mappedStatus = _mapStatus(statusStr);
     final existingIdx = _jobs.indexWhere((j) => j.id == record['id']);
     
+    // Calculate actual distance from provider to customer
+    double distance = 0.0;
+    if (_providerLat != null && _providerLng != null) {
+      final customerLat = (record['customer_lat'] as num?)?.toDouble();
+      final customerLng = (record['customer_lng'] as num?)?.toDouble();
+      if (customerLat != null && customerLng != null) {
+        distance = _calculateDistance(_providerLat!, _providerLng!, customerLat, customerLng);
+      }
+    }
+    // Round to nearest whole number
+    distance = distance.roundToDouble();
+
     final existing = existingIdx != -1 ? _jobs[existingIdx] : _JobRequest(
         id: record['id'] as String? ?? '',
         providerId: record['provider_id'] as String?,
@@ -648,7 +698,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         driverName: 'Customer',
         driverPhone: '',
         address: record['address'] as String? ?? '',
-        distanceMiles: 2.5,
+        distanceMiles: distance,
         description: record['description'] as String? ?? '',
         postedMinutesAgo: _minutesAgo(record['created_at'] as String?),
         urgency: record['urgency'] as String? ?? 'standard',
@@ -1527,6 +1577,22 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         );
       },
     );
+  }
+
+  double _calculateDistance(double lat1, double lng1, double lat2, double lng2) {
+    const earthRadius = 3959; // miles
+    final dLat = _toRadians(lat2 - lat1);
+    final dLng = _toRadians(lng2 - lng1);
+    final a =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_toRadians(lat1)) * math.cos(_toRadians(lat2)) *
+        math.sin(dLng / 2) * math.sin(dLng / 2);
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return earthRadius * c;
+  }
+
+  double _toRadians(double degrees) {
+    return degrees * (math.pi / 180);
   }
 }
 

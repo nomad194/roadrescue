@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'localization_service.dart';
 
 // Conditional import for mobile notifications
 import 'notification_service_stub.dart'
@@ -202,27 +203,28 @@ class NotificationService {
   }
 
   Future<void> notifyProviderQuoteAcceptedOnline(String serviceType) async {
+    final l = LocalizationService.instance;
     await showLocalNotification(
-      title: '✅ Quote Accepted & Paid',
-      body:
-          'Your quote for $serviceType has been accepted and paid. Order confirmed.',
+      title: l.t('quote_accepted_paid'),
+      body: l.t('quote_accepted_paid_body').replaceAll('{service}', serviceType),
       payload: 'booking_confirmed_online',
     );
   }
 
   Future<void> notifyProviderQuoteAcceptedCOD(String serviceType) async {
+    final l = LocalizationService.instance;
     await showLocalNotification(
-      title: '✅ Quote Accepted (COD)',
-      body:
-          'Your quote for $serviceType has been accepted. Order confirmed (COD).',
+      title: l.t('quote_accepted_cod'),
+      body: l.t('quote_accepted_cod_body').replaceAll('{service}', serviceType),
       payload: 'booking_confirmed_cod',
     );
   }
 
   Future<void> notifyCustomerEnRoute(String providerName) async {
+    final l = LocalizationService.instance;
     await showLocalNotification(
-      title: '🚗 Provider On The Way',
-      body: '$providerName is on the way to your location.',
+      title: l.t('provider_on_the_way'),
+      body: l.t('provider_on_the_way_body').replaceAll('{name}', providerName),
       payload: 'provider_en_route',
     );
   }
@@ -230,9 +232,10 @@ class NotificationService {
   // ─── DOCUMENT VERIFICATION NOTIFICATIONS ─────────────────────────────────
 
   Future<void> notifyDocumentApproved() async {
+    final l = LocalizationService.instance;
     await showLocalNotification(
-      title: '✅ Document Approved',
-      body: 'Your document has been approved. Check your verification status.',
+      title: l.t('document_approved_notif'),
+      body: l.t('document_approved_notif_body'),
       payload: 'document_approved',
     );
   }
