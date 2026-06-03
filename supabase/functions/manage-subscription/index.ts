@@ -1,7 +1,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
+const corsOrigin = Deno.env.get('CORS_ORIGIN') ?? '*';
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': corsOrigin,
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
@@ -11,10 +12,30 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const authHeader = req.headers.get('authorization');
+    if (!authHeader) {
+      return jsonResponse({ error: 'Unauthorized' }, 401);
+    }
+
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
+
+    const supabaseAuth = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      {
+        global: {
+          headers: { Authorization: authHeader },
+        },
+      }
+    );
+
+    const { data: { user }, error: userError } = await supabaseAuth.auth.getUser();
+    if (userError || !user) {
+      return jsonResponse({ error: 'Unauthorized' }, 401);
+    }
 
     const body = await req.json();
     const { action, provider_id, plan_id, billing_cycle, amount, payment_method } = body;
@@ -25,6 +46,25 @@ Deno.serve(async (req) => {
 
     if (!provider_id && action !== 'check_status') {
       return jsonResponse({ error: 'provider_id is required' }, 400);
+    }
+
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    const isAdmin = profile?.role === 'admin';
+    const mutatingActions = ['start_trial', 'activate', 'expire', 'complete_month'];
+    if (mutatingActions.includes(action)) {
+      if (!isAdmin && user.id !== provider_id) {
+        return jsonResponse({ error: 'Forbidden' }, 403);
+      }
+    }
+    if (action === 'check_status') {
+      if (!isAdmin && user.id !== provider_id) {
+        return jsonResponse({ error: 'Forbidden' }, 403);
+      }
     }
 
     let result;

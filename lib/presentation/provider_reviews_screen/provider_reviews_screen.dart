@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../../theme/app_theme.dart';
-import '../../services/supabase_service.dart';
-import '../../services/localization_service.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
+import 'package:roadrescue_shared/services/supabase_service.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
 
 class ProviderReviewsScreen extends StatefulWidget {
   final String? providerId;
@@ -19,6 +19,8 @@ class _ProviderReviewsScreenState extends State<ProviderReviewsScreen> {
   double _averageRating = 0.0;
   int _totalReviews = 0;
   final _responseController = TextEditingController();
+  final _reportController = TextEditingController();
+  bool _isReporting = false;
 
   @override
   void initState() {
@@ -44,7 +46,6 @@ class _ProviderReviewsScreenState extends State<ProviderReviewsScreen> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading reviews: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -87,7 +88,6 @@ class _ProviderReviewsScreenState extends State<ProviderReviewsScreen> {
                 Navigator.pop(ctx);
                 _loadReviews();
               } catch (e) {
-                debugPrint('Error adding response: $e');
               }
             },
             style: ElevatedButton.styleFrom(
@@ -98,6 +98,157 @@ class _ProviderReviewsScreenState extends State<ProviderReviewsScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _showReportDialog(Map<String, dynamic> review) async {
+    _reportController.clear();
+    final l = LocalizationService.instance;
+    
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          'Report Review',
+          style: GoogleFonts.manrope(fontWeight: FontWeight.w700),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Please tell us why you are reporting this review:',
+              style: GoogleFonts.manrope(fontSize: 13, color: AppTheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _reportController,
+              maxLines: 4,
+              decoration: InputDecoration(
+                hintText: 'e.g., Contains inappropriate language, false information, etc.',
+                filled: true,
+                fillColor: AppTheme.surfaceVariant,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(l.t('cancel')),
+          ),
+          ElevatedButton(
+            onPressed: _isReporting
+                ? null
+                : () => _submitReport(review, ctx),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.error,
+              foregroundColor: Colors.white,
+            ),
+            child: _isReporting
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : const Text('Submit Report'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _submitReport(Map<String, dynamic> review, BuildContext dialogContext) async {
+    final reason = _reportController.text.trim();
+    if (reason.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please provide a reason for reporting'),
+          backgroundColor: AppTheme.warning,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isReporting = true);
+    
+    final reviewId = review['id'] as String? ?? '';
+    final providerId = SupabaseService.instance.currentUser?.id ?? '';
+    final reviewerName = (review['reviewer'] as Map<String, dynamic>?)?['full_name'] as String? ?? 'Anonymous';
+    final rating = review['rating'] as int? ?? 0;
+    final comment = review['comment'] as String? ?? '';
+    final providerName = SupabaseService.instance.currentUser?.userMetadata?['full_name'] as String? ?? 'Provider';
+
+    try {
+      // Insert report into database
+      final reportResponse = await SupabaseService.instance.client
+          .from('review_reports')
+          .insert({
+            'review_id': reviewId,
+            'provider_id': providerId,
+            'reason': reason,
+            'details': null,
+          })
+          .select('id')
+          .single();
+
+      final reportId = reportResponse['id'] as String? ?? '';
+
+      // Call edge function to notify support
+      try {
+        await SupabaseService.instance.client.functions.invoke(
+          'notify-support',
+          body: {
+            'review_id': reviewId,
+            'provider_id': providerId,
+            'provider_name': providerName,
+            'customer_name': reviewerName,
+            'review_rating': rating,
+            'review_comment': comment,
+            'reason': reason,
+            'report_id': reportId,
+          },
+        );
+      } catch (e) {
+        // Edge function failure shouldn't block the UI - report is already saved
+        print('Failed to send email notification: $e');
+      }
+
+      if (mounted) {
+        Navigator.pop(dialogContext);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Report submitted successfully. Our team will review it.',
+              style: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            backgroundColor: AppTheme.success,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Failed to submit report. Please try again.',
+              style: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            backgroundColor: AppTheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isReporting = false);
+    }
   }
 
   @override
@@ -281,20 +432,40 @@ class _ProviderReviewsScreenState extends State<ProviderReviewsScreen> {
                                 ),
                               ),
                             ],
-                            // Respond Button (only for provider's own reviews)
-                            if (canRespond && isPublic) ...[
+                            // Action buttons row
+                            if (isOwnProfile) ...[
                               const SizedBox(height: 12),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton(
-                                  onPressed: () => _showResponseDialog(reviewId),
-                                  child: Text(
-                                    'Respond',
-                                    style: GoogleFonts.manrope(
-                                      fontWeight: FontWeight.w600,
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  // Report button (available for all reviews)
+                                  TextButton.icon(
+                                    onPressed: () => _showReportDialog(review),
+                                    icon: const Icon(
+                                      Icons.flag_outlined,
+                                      size: 16,
+                                      color: AppTheme.error,
+                                    ),
+                                    label: Text(
+                                      'Report',
+                                      style: GoogleFonts.manrope(
+                                        fontWeight: FontWeight.w600,
+                                        color: AppTheme.error,
+                                      ),
                                     ),
                                   ),
-                                ),
+                                  // Respond button (only for provider's own reviews without response)
+                                  if (canRespond && isPublic)
+                                    TextButton(
+                                      onPressed: () => _showResponseDialog(reviewId),
+                                      child: Text(
+                                        'Respond',
+                                        style: GoogleFonts.manrope(
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                ],
                               ),
                             ],
                           ],

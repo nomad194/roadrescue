@@ -10,20 +10,18 @@ Flutter mobile app for on-demand roadside assistance. Customers request help, pr
 
 ## Quick start
 
-1. Copy environment template and fill in your keys:
+1. Copy the environment template and fill in your keys:
 
 ```bash
 cp env.example.json env.json
 ```
 
-2. Install dependencies and run:
+2. Run with compile-time defines (never bundle `env.json` as a Flutter asset):
 
 ```bash
 flutter pub get
-flutter run
+flutter run --dart-define-from-file=env.json
 ```
-
-The app loads your cloud Supabase project from `env.json` automatically (bundled as an asset). You can still use `flutter run --dart-define-from-file=env.json` if you prefer compile-time defines.
 
 Required keys in `env.json`:
 
@@ -33,7 +31,7 @@ Required keys in `env.json`:
 | `SUPABASE_ANON_KEY` | Supabase anon/public key |
 | `STRIPE_PUBLISHABLE_KEY` | Stripe publishable key |
 
-**Security:** `env.json` is gitignored. If keys were ever committed, rotate them in the Supabase and Stripe dashboards.
+**Security:** `env.json` is gitignored and must NOT be added to `pubspec.yaml` assets. Pass it only via `--dart-define-from-file`. If keys were ever committed, rotate them in the Supabase and Stripe dashboards.
 
 ## Supabase setup
 

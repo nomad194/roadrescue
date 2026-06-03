@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../services/supabase_service.dart';
+import 'package:roadrescue_shared/services/supabase_service.dart';
 import 'app_routes.dart';
 
 /// Roles allowed per route. Null means any authenticated user.
@@ -8,15 +8,16 @@ const Map<String, List<String>?> _routeRoles = {
   AppRoutes.initial: null,
   AppRoutes.signUpLoginScreen: null,
   AppRoutes.faqTosScreen: null,
-  AppRoutes.serviceRequestScreen: ['customer', 'provider', 'admin'],
-  AppRoutes.customerProfileScreen: ['customer', 'provider', 'admin'],
-  AppRoutes.serviceHistoryScreen: ['customer', 'provider', 'admin'],
-  AppRoutes.paymentScreen: ['customer', 'provider', 'admin'],
-  AppRoutes.postPaymentScreen: ['customer', 'provider', 'admin'],
-  AppRoutes.jobRequestsScreen: ['customer', 'provider', 'admin'],
-  AppRoutes.providerProfileScreen: ['customer', 'provider', 'admin'],
-  AppRoutes.providerDocumentsScreen: ['provider', 'admin'],
-  AppRoutes.adminDashboardScreen: ['admin'],
+  AppRoutes.completeCustomerProfileScreen: null,
+  AppRoutes.completeProviderProfileScreen: null,
+  AppRoutes.serviceRequestScreen: ['customer', 'provider'],
+  AppRoutes.customerProfileScreen: ['customer', 'provider'],
+  AppRoutes.serviceHistoryScreen: ['customer', 'provider'],
+  AppRoutes.paymentScreen: ['customer', 'provider'],
+  AppRoutes.postPaymentScreen: ['customer', 'provider'],
+  AppRoutes.jobRequestsScreen: ['customer', 'provider'],
+  AppRoutes.providerProfileScreen: ['customer', 'provider'],
+  AppRoutes.providerDocumentsScreen: ['provider'],
 };
 
 /// Routes that require document verification for providers.
@@ -37,7 +38,6 @@ const Set<String> _phoneVerificationRequired = {
   AppRoutes.postPaymentScreen,
   AppRoutes.serviceHistoryScreen,
   AppRoutes.providerDocumentsScreen,
-  AppRoutes.adminDashboardScreen,
   AppRoutes.providerReviewsScreen,
 };
 
@@ -53,7 +53,7 @@ class RouteGuard extends StatelessWidget {
 
   static bool isPublicRoute(String routeName) {
     final allowed = _routeRoles[routeName];
-    return allowed == null && routeName != AppRoutes.adminDashboardScreen;
+    return allowed == null;
   }
 
   @override
@@ -95,11 +95,9 @@ class RouteGuard extends StatelessWidget {
         if (!allowedRoles.contains(role)) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!context.mounted) return;
-            final redirect = role == 'admin'
-                ? AppRoutes.adminDashboardScreen
-                : role == 'provider'
-                    ? AppRoutes.jobRequestsScreen
-                    : AppRoutes.serviceRequestScreen;
+            final redirect = role == 'provider'
+                ? AppRoutes.jobRequestsScreen
+                : AppRoutes.serviceRequestScreen;
             Navigator.pushNamedAndRemoveUntil(context, redirect, (r) => false);
           });
           return const Scaffold(
@@ -127,8 +125,7 @@ class RouteGuard extends StatelessWidget {
         }
 
         // Block users without phone verification from sensitive routes
-        // Admins are exempt from phone verification
-        if (_phoneVerificationRequired.contains(routeName) && role != 'admin') {
+        if (_phoneVerificationRequired.contains(routeName)) {
           final phoneVerifiedAt = snapshot.data?['phone_verified_at'];
           if (phoneVerifiedAt == null) {
             WidgetsBinding.instance.addPostFrameCallback((_) {

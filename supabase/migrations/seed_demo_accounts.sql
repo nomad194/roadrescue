@@ -232,10 +232,4 @@ WHERE NOT EXISTS (
 );
 
 
--- Demo credentials summary:
--- Driver: demo.driver@roadrescue.com / Driver@2026
--- Provider: demo.provider@roadrescue.com / Provider@2026
--- Provider 2: demo.provider2@roadrescue.com / Provider2@2026
--- Admin: demo.admin@roadrescue.com / Admin@2026
-
 SELECT 'Demo accounts seeded with working passwords' as result;

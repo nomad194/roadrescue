@@ -1,20 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:convert';
 
 import '../../routes/app_routes.dart';
-import '../../config/app_constants.dart';
-import '../../services/supabase_service.dart';
-import '../../services/localization_service.dart';
-import '../../theme/app_theme.dart';
+import 'package:roadrescue_shared/config/app_constants.dart';
+import 'package:roadrescue_shared/services/supabase_service.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
+import 'package:roadrescue_shared/services/location_service.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
 import './widgets/location_card_widget.dart';
 import './widgets/request_form_widget.dart';
 import './widgets/request_submit_button_widget.dart';
 import './widgets/service_category_grid_widget.dart';
 import './widgets/active_request_banner_widget.dart';
 import './widgets/help_request_detail_sheet.dart';
-import '../../widgets/review_dialog_widget.dart';
+import './widgets/top_nav_bar.dart';
+import './widgets/hero_section_widget.dart';
+import 'package:roadrescue_shared/widgets/review_dialog_widget.dart';
 
 class ServiceRequestScreen extends StatefulWidget {
   const ServiceRequestScreen({super.key});
@@ -40,6 +44,9 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
 
   List<Map<String, dynamic>> _dynamicCategories = [];
   bool _isLoadingCats = true;
+  String? _userName;
+  String? _cityName;
+  String? _avatarUrl;
 
   final _descriptionController = TextEditingController();
 
@@ -92,15 +99,141 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
 
   Future<void> _loadInitialData() async {
     try {
-      await Future.wait([_loadActiveRequest(), _loadCategories()]);
+      await Future.wait([_loadActiveRequest(), _loadCategories(), _loadUserName()]);
+      // Run GPS after user data so GPS-derived city/state overrides profile fallback
+      await _autoAcquireGps();
     } catch (e) {
-      debugPrint('Error loading initial data: $e');
       if (mounted) {
         setState(() {
           _isLoadingCats = false;
         });
       }
     }
+  }
+
+  /// Extract "City, State" from a Nominatim display_name string.
+  String _extractCityState(String displayName) {
+    final parts = displayName.split(',').map((s) => s.trim()).toList();
+    if (parts.length < 2) return displayName;
+
+    // Remove likely postcode (short numeric) and country names
+    final clean = parts.where((p) {
+      if (RegExp(r'^\d{3,8}$').hasMatch(p.trim())) return false;
+      final lower = p.toLowerCase();
+      if ([
+        'united states',
+        'usa',
+        'united kingdom',
+        'canada',
+        'mexico',
+        'germany',
+        'france',
+        'spain',
+        'italy',
+      ].contains(lower)) return false;
+      return true;
+    }).toList();
+
+    if (clean.length >= 2) {
+      // Typical Nominatim order: …, City, County/Region, State, …
+      // Try city (length-3) + state (length-1)
+      final city = clean.length >= 3 ? clean[clean.length - 3] : clean[clean.length - 2];
+      final state = clean.last;
+      return '$city, $state';
+    }
+    return displayName;
+  }
+
+  Future<void> _autoAcquireGps() async {
+    try {
+      // Check if we already have a cached location
+      final cached = await LocationService.getLastKnownLocation();
+      if (cached != null) {
+        final address = cached['address'] as String? ?? '';
+        if (mounted) {
+          setState(() {
+            _locationLat = cached['lat'] as double?;
+            _locationLng = cached['lng'] as double?;
+            _locationAddress = address;
+            _cityName = _extractCityState(address);
+          });
+        }
+        return;
+      }
+
+      // Request permission and acquire GPS
+      final permission = await LocationService.requestPermission();
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return;
+      }
+
+      final position = await LocationService.getCurrentPosition(
+        timeout: const Duration(seconds: 8),
+      );
+      if (position == null) {
+        return;
+      }
+
+      final address = await LocationService.reverseGeocode(
+        position.latitude,
+        position.longitude,
+      );
+
+      final resolvedAddress = address ??
+          '${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}';
+
+      await LocationService.saveLastKnownLocation(
+        position.latitude,
+        position.longitude,
+        resolvedAddress,
+      );
+
+      if (mounted) {
+        setState(() {
+          _locationLat = position.latitude;
+          _locationLng = position.longitude;
+          _locationAddress = resolvedAddress;
+          _cityName = _extractCityState(resolvedAddress);
+        });
+      }
+    } catch (e) {
+    }
+  }
+
+  Future<void> _loadUserName() async {
+    try {
+      final userId = SupabaseService.instance.currentUser?.id;
+      if (userId == null) return;
+      final profile = await SupabaseService.instance.getUserProfile(userId);
+      if (profile != null && mounted) {
+        String? cityName;
+        final cityId = profile['selected_city_id'] as String?;
+        if (cityId != null) {
+          try {
+            final cityRes = await Supabase.instance.client
+                .from('cities')
+                .select('name')
+                .eq('id', cityId)
+                .maybeSingle();
+            cityName = cityRes?['name'] as String?;
+          } catch (_) {}
+        }
+        setState(() {
+          _userName = profile['full_name'] as String?;
+          _cityName = cityName ?? profile['address'] as String?;
+          _avatarUrl = profile['avatar_url'] as String?;
+        });
+      }
+    } catch (e) {
+    }
+  }
+
+  String _getGreeting(LocalizationService l) {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return l.t('good_morning');
+    if (hour < 18) return l.t('good_afternoon');
+    return l.t('good_evening');
   }
 
   Future<void> _loadCategories() async {
@@ -130,15 +263,12 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
           final request = _mapToActiveRequest(data);
           setState(() => _activeRequest = request);
           _subscribeToRequest(data['id']?.toString() ?? '');
-          debugPrint('Active request loaded: ${request.id} - ${request.status}');
         } else {
           // Explicitly clear if no active request found
           setState(() => _activeRequest = null);
-          debugPrint('No active request found.');
         }
       }
     } catch (e) {
-      debugPrint('Error loading active request: $e');
     }
   }
 
@@ -239,15 +369,19 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
       _selectedCategory = id;
       _selectedVehicleSize = null;
     });
+    _showRequestDetailsSheet();
   }
 
   void _onUrgencyChanged(String level) {
     setState(() => _urgencyLevel = level);
   }
 
-  Future<void> _onSubmit() async {
+  Future<void> _onSubmit({BuildContext? popupContext}) async {
     final l = LocalizationService.instance;
     if (_selectedCategory == null) {
+      if (popupContext != null && popupContext.mounted) {
+        Navigator.pop(popupContext);
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -289,10 +423,12 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
         orElse: () => {'icon_emoji': 'build'},
       );
       final serviceIcon = cat['icon_emoji'] ?? 'build';
+      final serviceIconImageUrl = cat['icon_image_url'] as String?;
 
       final data = await SupabaseService.instance.createJobRequest(
         serviceType: _selectedCategoryLabel,
         serviceIcon: serviceIcon,
+        serviceIconImageUrl: serviceIconImageUrl,
         vehicleSize: _selectedVehicleSize ?? '',
         address: _locationAddress ?? '',
         description: _descriptionController.text.isNotEmpty
@@ -302,6 +438,10 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
         customerLat: _locationLat,
         customerLng: _locationLng,
       );
+
+      if (popupContext != null && popupContext.mounted) {
+        Navigator.pop(popupContext);
+      }
 
       final newRequest = _mapToActiveRequest(data);
       setState(() {
@@ -314,11 +454,12 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
       _subscribeToRequest(data['id']?.toString() ?? '');
       _showRequestSubmittedDialog(data['id']?.toString() ?? '');
     } catch (e) {
+      debugPrint('Job request error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              l.t('generic_error'),
+              '${l.t('generic_error')}: ${e.toString()}',
               style: GoogleFonts.manrope(fontSize: 14),
             ),
             backgroundColor: AppTheme.error,
@@ -333,6 +474,141 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
+  }
+
+  void _showRequestDetailsSheet() {
+    final l = LocalizationService.instance;
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: l.t('close'),
+      barrierColor: Colors.black.withAlpha(77),
+      transitionDuration: const Duration(milliseconds: 300),
+      pageBuilder: (ctx, anim1, anim2) => const SizedBox.shrink(),
+      transitionBuilder: (ctx, anim1, anim2, child) {
+        return StatefulBuilder(
+          builder: (context, sheetSetState) {
+            return SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(1, 0),
+                end: Offset.zero,
+              ).animate(
+                CurvedAnimation(
+                  parent: anim1,
+                  curve: Curves.easeOutCubic,
+                ),
+              ),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Material(
+                  color: AppTheme.surface,
+                  elevation: 8,
+                  child: SizedBox(
+                    width: MediaQuery.of(ctx).size.width * 0.88,
+                    height: double.infinity,
+                    child: SafeArea(
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          bottom: MediaQuery.of(ctx).viewInsets.bottom,
+                        ),
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // Close row
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      _selectedCategoryLabel,
+                                      style: GoogleFonts.manrope(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppTheme.onSurface,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  GestureDetector(
+                                    onTap: () {
+                                      Navigator.pop(ctx);
+                                      setState(() {
+                                        _selectedCategory = null;
+                                        _selectedVehicleSize = null;
+                                      });
+                                    },
+                                    child: Container(
+                                      width: 32,
+                                      height: 32,
+                                      decoration: BoxDecoration(
+                                        color: AppTheme.surfaceVariant,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.close_rounded,
+                                        size: 18,
+                                        color: AppTheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 20),
+                              // Vehicle size picker
+                              if (_availableVehicleSizes.isNotEmpty) ...[
+                                _buildVehicleSizePicker(
+                                  l,
+                                  onChanged: () => sheetSetState(() {}),
+                                ),
+                                const SizedBox(height: 20),
+                              ],
+                              // Location
+                              LocationCardWidget(
+                                onLocationDetected: (lat, lng, address) {
+                                  setState(() {
+                                    _locationLat = lat;
+                                    _locationLng = lng;
+                                    _locationAddress = address;
+                                  });
+                                  sheetSetState(() {});
+                                },
+                              ),
+                              const SizedBox(height: 20),
+                              // Details & urgency
+                              RequestFormWidget(
+                                controller: _descriptionController,
+                                urgencyLevel: _urgencyLevel,
+                                onUrgencyChanged: (level) {
+                                  _onUrgencyChanged(level);
+                                  sheetSetState(() {});
+                                },
+                              ),
+                              const SizedBox(height: 24),
+                              // Submit
+                              RequestSubmitButtonWidget(
+                                isSubmitting: _isSubmitting,
+                                isEnabled: _selectedCategory != null &&
+                                    (_availableVehicleSizes.isEmpty ||
+                                        _selectedVehicleSize != null),
+                                onSubmit: () => _onSubmit(popupContext: ctx),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   void _showRequestSubmittedDialog(String requestId) {
@@ -567,86 +843,38 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
     final l = LocalizationService.instance;
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: AppBar(
-        backgroundColor: AppTheme.surface,
-        elevation: 0,
-        scrolledUnderElevation: 1,
-        shadowColor: Colors.black.withAlpha(20),
-        surfaceTintColor: Colors.transparent,
-        leading: IconButton(
-          icon: const Icon(Icons.logout_rounded),
-          onPressed: _signOut,
-          tooltip: l.t('sign_out'),
-        ),
-        title: Text(
-          l.t('request_help'),
-          style: GoogleFonts.manrope(
-            fontSize: 17,
-            fontWeight: FontWeight.w700,
-            color: AppTheme.onSurface,
-          ),
-          overflow: TextOverflow.ellipsis,
-        ),
-        actions: [
-          IconButton(
-            onPressed: () =>
-                Navigator.pushNamed(context, AppRoutes.customerProfileScreen),
-            icon: const Icon(
-              Icons.person_outline_rounded,
-              size: 22,
-              color: AppTheme.primary,
-            ),
-            tooltip: l.t('my_profile'),
-            visualDensity: VisualDensity.compact,
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: InkWell(
-              onTap: () => Navigator.pushNamedAndRemoveUntil(
-                context,
-                AppRoutes.jobRequestsScreen,
-                (r) => false,
-              ),
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                decoration: BoxDecoration(
-                  color: AppTheme.primary.withAlpha(20),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.work_outline_rounded,
-                      size: 14,
-                      color: AppTheme.primary,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Provider',
-                      style: GoogleFonts.manrope(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
       body: SafeArea(
         child: Column(
           children: [
-            if (_activeRequest != null &&
-                _activeRequest!.status != HelpRequestStatus.cancelled)
-              ActiveRequestBannerWidget(
-                request: _activeRequest!,
-                onTap: _openRequestDetail,
+            TopNavBar(
+              cityName: _cityName,
+            ),
+            const HeroSectionWidget(),
+            Padding(
+              padding: const EdgeInsets.only(left: 16, top: 8),
+              child: Row(
+                children: [
+                  Text(
+                    _getGreeting(l),
+                    style: GoogleFonts.manrope(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  if (_userName != null && _userName!.isNotEmpty)
+                    Text(
+                      _userName!.split(' ').first,
+                      style: GoogleFonts.manrope(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.onSurface,
+                      ),
+                    ),
+                ],
               ),
+            ),
             Expanded(
               child: _isTablet ? _buildTabletLayout(l) : _buildPhoneLayout(l),
             ),
@@ -668,29 +896,19 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
           'id': c['id']?.toString() ?? '',
           'label': _getCategoryName(c),
           'icon': c['icon_emoji'] ?? 'build',
+          'iconImageUrl': c['icon_image_url'] as String?,
         });
       } catch (e) {
-        debugPrint('Error mapping category: $e');
       }
     }
 
     return SingleChildScrollView(
       physics: const ClampingScrollPhysics(),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            LocationCardWidget(
-              onLocationDetected: (lat, lng, address) {
-                setState(() {
-                  _locationLat = lat;
-                  _locationLng = lng;
-                  _locationAddress = address;
-                });
-              },
-            ),
-            const SizedBox(height: 20),
             _buildSectionHeader(
               l.t('what_do_you_need'),
               l.t('select_service_subtitle'),
@@ -714,33 +932,36 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
                 categories: mappedCategories,
                 selectedId: _selectedCategory,
                 onSelected: _onCategorySelected,
-                crossAxisCount: 2,
+                crossAxisCount: 3,
               ),
-            if (_selectedCategory != null &&
-                _availableVehicleSizes.isNotEmpty) ...[
-              const SizedBox(height: 20),
-              _buildVehicleSizePicker(l),
-            ],
-            const SizedBox(height: 20),
-            RequestFormWidget(
-              controller: _descriptionController,
-              urgencyLevel: _urgencyLevel,
-              onUrgencyChanged: _onUrgencyChanged,
-            ),
             const SizedBox(height: 24),
-            RequestSubmitButtonWidget(
-              isSubmitting: _isSubmitting,
-              isEnabled: _selectedCategory != null,
-              onSubmit: _onSubmit,
-            ),
-            const SizedBox(height: 16),
+            // Current Services section
+            if (_activeRequest != null &&
+                _activeRequest!.status != HelpRequestStatus.cancelled) ...[
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  l.t('current_services'),
+                  style: GoogleFonts.manrope(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.onSurface,
+                  ),
+                ),
+              ),
+              ActiveRequestBannerWidget(
+                request: _activeRequest!,
+                onTap: _openRequestDetail,
+              ),
+              const SizedBox(height: 16),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _buildVehicleSizePicker(LocalizationService l) {
+  Widget _buildVehicleSizePicker(LocalizationService l, {VoidCallback? onChanged}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -756,9 +977,10 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
               final vehicle = _availableVehicleSizes[index];
               final isSelected = _selectedVehicleSize == vehicle['id'];
               return GestureDetector(
-                onTap: () => setState(
-                  () => _selectedVehicleSize = vehicle['id'] as String,
-                ),
+                onTap: () {
+                  setState(() => _selectedVehicleSize = vehicle['id'] as String);
+                  onChanged?.call();
+                },
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
                   width: 85,
@@ -849,14 +1071,14 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
           'id': c['id']?.toString() ?? '',
           'label': _getCategoryName(c),
           'icon': c['icon_emoji'] ?? 'build',
+          'iconImageUrl': c['icon_image_url'] as String?,
         });
       } catch (e) {
-        debugPrint('Error mapping category: $e');
       }
     }
 
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 90),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -891,42 +1113,6 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
                       onSelected: _onCategorySelected,
                       crossAxisCount: 3,
                     ),
-                  if (_selectedCategory != null &&
-                      _availableVehicleSizes.isNotEmpty) ...[
-                    const SizedBox(height: 20),
-                    _buildVehicleSizePicker(l),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(width: 24),
-          Expanded(
-            flex: 4,
-            child: SingleChildScrollView(
-              child: Column(
-                children: [
-                  LocationCardWidget(
-                    onLocationDetected: (lat, lng, address) {
-                      setState(() {
-                        _locationLat = lat;
-                        _locationLng = lng;
-                        _locationAddress = address;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  RequestFormWidget(
-                    controller: _descriptionController,
-                    urgencyLevel: _urgencyLevel,
-                    onUrgencyChanged: _onUrgencyChanged,
-                  ),
-                  const SizedBox(height: 20),
-                  RequestSubmitButtonWidget(
-                    isSubmitting: _isSubmitting,
-                    isEnabled: _selectedCategory != null,
-                    onSubmit: _onSubmit,
-                  ),
                 ],
               ),
             ),

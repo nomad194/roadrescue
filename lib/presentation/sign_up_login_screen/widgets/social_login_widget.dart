@@ -1,21 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../routes/app_routes.dart';
-import '../../../services/auth_social_service.dart';
-import '../../../services/localization_service.dart';
-import '../../../services/mfa_service.dart';
-import '../../../services/supabase_service.dart';
-import '../../../theme/app_theme.dart';
+import 'package:roadrescue_shared/services/auth_social_service.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
+import 'package:roadrescue_shared/services/mfa_service.dart';
+import 'package:roadrescue_shared/services/supabase_service.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
 
 /// Social login widget with Google, Apple, and Facebook sign-in buttons
 class SocialLoginWidget extends StatefulWidget {
   final String? selectedRole;
+  final bool isSignUp;
 
   const SocialLoginWidget({
     super.key,
     this.selectedRole,
+    this.isSignUp = false,
   });
 
   @override
@@ -35,6 +38,11 @@ class _SocialLoginWidgetState extends State<SocialLoginWidget> {
     });
 
     try {
+      // Persist role so profile is created with correct role after OAuth redirect
+      if (widget.selectedRole != null) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('pending_social_role', widget.selectedRole!);
+      }
       // Launches browser OAuth flow - auth state change handled by sign_up_login_screen
       await AuthSocialService.instance.signInWithGoogle();
       // Loading state cleared when user returns from browser or on error
@@ -68,13 +76,16 @@ class _SocialLoginWidgetState extends State<SocialLoginWidget> {
       final response = await AuthSocialService.instance.signInWithApple();
 
       if (response.user != null && mounted) {
+        // Ensure profile exists and check if user is new
+        final isNew = await AuthSocialService.instance.handlePostSocialAuth(response.user);
+
         // Update role if provided during signup
         if (widget.selectedRole != null) {
           await _updateUserRole(response.user!.id, widget.selectedRole!);
         }
 
-        // Check phone verification and redirect
-        await _redirectAfterLogin(response.user!.id);
+        // Redirect based on new vs returning user
+        await _redirectAfterLogin(response.user!.id, isNew: isNew);
       }
     } on AuthException catch (e) {
       if (mounted) {
@@ -103,6 +114,11 @@ class _SocialLoginWidgetState extends State<SocialLoginWidget> {
     });
 
     try {
+      // Persist role so profile is created with correct role after OAuth redirect
+      if (widget.selectedRole != null) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('pending_social_role', widget.selectedRole!);
+      }
       // Facebook uses OAuth redirect flow
       await AuthSocialService.instance.signInWithFacebook();
 
@@ -135,35 +151,52 @@ class _SocialLoginWidgetState extends State<SocialLoginWidget> {
           .update({'role': role})
           .eq('id', userId);
     } catch (e) {
-      debugPrint('Error updating role: $e');
     }
   }
 
-  Future<void> _redirectAfterLogin(String userId) async {
-    // Get role first to check if admin (admins exempt from phone verification)
+  Future<void> _redirectAfterLogin(String userId, {bool isNew = false}) async {
     final profile = await SupabaseService.instance.client
         .from('user_profiles')
-        .select('role')
+        .select('role, phone')
         .eq('id', userId)
         .maybeSingle();
 
     final role = profile?['role'] as String? ?? 'customer';
+    final phone = profile?['phone'] as String? ?? '';
 
-    // Check if phone is verified (admins are exempt)
-    if (role != 'admin') {
-      final isPhoneVerified = await MfaService.instance.isPhoneVerified(userId);
+    if (!mounted) return;
 
-      if (!mounted) return;
-
-      if (!isPhoneVerified) {
-        // Redirect to phone verification
+    // New social-auth users (or users with missing phone) go to completion screens
+    if (isNew || phone.isEmpty) {
+      if (role == 'provider') {
         Navigator.pushNamedAndRemoveUntil(
           context,
-          AppRoutes.phoneVerificationScreen,
+          AppRoutes.completeProviderProfileScreen,
           (r) => false,
         );
-        return;
+      } else {
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          AppRoutes.completeCustomerProfileScreen,
+          (r) => false,
+        );
       }
+      return;
+    }
+
+    // Check if phone is verified
+    final isPhoneVerified = await MfaService.instance.isPhoneVerified(userId);
+
+    if (!mounted) return;
+
+    if (!isPhoneVerified) {
+      // Redirect to phone verification
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        AppRoutes.phoneVerificationScreen,
+        (r) => false,
+      );
+      return;
     }
 
     if (!mounted) return;
@@ -172,12 +205,6 @@ class _SocialLoginWidgetState extends State<SocialLoginWidget> {
       Navigator.pushNamedAndRemoveUntil(
         context,
         AppRoutes.providerDocumentsScreen,
-        (r) => false,
-      );
-    } else if (role == 'admin') {
-      Navigator.pushNamedAndRemoveUntil(
-        context,
-        AppRoutes.adminDashboardScreen,
         (r) => false,
       );
     } else {
@@ -231,7 +258,7 @@ class _SocialLoginWidgetState extends State<SocialLoginWidget> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Text(
-                l.t('or_continue_with'),
+                widget.isSignUp ? l.t('or_create_with') : l.t('or_continue_with'),
                 style: GoogleFonts.manrope(
                   fontSize: 13,
                   color: AppTheme.muted,
@@ -248,47 +275,46 @@ class _SocialLoginWidgetState extends State<SocialLoginWidget> {
           ],
         ),
         const SizedBox(height: 20),
-        // Social buttons
-        if (_showApple) ...[
-          _buildSocialButton(
-            provider: 'apple',
-            label: l.t('sign_in_with_apple'),
-            onPressed: _handleAppleSignIn,
-            icon: Icons.apple,
-            backgroundColor: Colors.black,
-            foregroundColor: Colors.white,
-          ),
-          const SizedBox(height: 12),
-        ],
-        if (_showGoogle) ...[
-          _buildSocialButton(
-            provider: 'google',
-            label: l.t('sign_in_with_google'),
-            onPressed: _handleGoogleSignIn,
-            icon: Icons.g_mobiledata_rounded,
-            backgroundColor: Colors.white,
-            foregroundColor: Colors.black87,
-            borderColor: AppTheme.outline,
-          ),
-          const SizedBox(height: 12),
-        ],
-        if (_showFacebook) ...[
-          _buildSocialButton(
-            provider: 'facebook',
-            label: l.t('sign_in_with_facebook'),
-            onPressed: _handleFacebookSignIn,
-            icon: Icons.facebook,
-            backgroundColor: const Color(0xFF1877F2),
-            foregroundColor: Colors.white,
-          ),
-        ],
+        // Social buttons row
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (_showApple)
+              _buildRoundSocialButton(
+                provider: 'apple',
+                onPressed: _handleAppleSignIn,
+                icon: Icons.apple,
+                backgroundColor: Colors.black,
+                foregroundColor: Colors.white,
+              ),
+            if (_showApple && _showGoogle) const SizedBox(width: 16),
+            if (_showGoogle)
+              _buildRoundSocialButton(
+                provider: 'google',
+                onPressed: _handleGoogleSignIn,
+                icon: Icons.g_mobiledata_rounded,
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black87,
+                borderColor: AppTheme.outline,
+              ),
+            if ((_showGoogle && _showFacebook) || (_showApple && _showFacebook))
+              const SizedBox(width: 16),
+            if (_showFacebook)
+              _buildRoundSocialButton(
+                provider: 'facebook',
+                onPressed: _handleFacebookSignIn,
+                icon: Icons.facebook,
+                backgroundColor: const Color(0xFF1877F2),
+                foregroundColor: Colors.white,
+              ),
+          ],
+        ),
       ],
     );
   }
 
-  Widget _buildSocialButton({
+  Widget _buildRoundSocialButton({
     required String provider,
-    required String label,
     required VoidCallback onPressed,
     required IconData icon,
     required Color backgroundColor,
@@ -297,41 +323,38 @@ class _SocialLoginWidgetState extends State<SocialLoginWidget> {
   }) {
     final isLoading = _isLoading && _loadingProvider == provider;
 
-    return SizedBox(
-      width: double.infinity,
-      height: 48,
-      child: ElevatedButton.icon(
-        onPressed: isLoading ? null : onPressed,
-        icon: isLoading
+    return InkWell(
+      onTap: isLoading ? null : onPressed,
+      customBorder: const CircleBorder(),
+      child: Container(
+        width: 52,
+        height: 52,
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          shape: BoxShape.circle,
+          border: borderColor != null
+              ? Border.all(color: borderColor)
+              : null,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withAlpha(100),
+              blurRadius: 14,
+              spreadRadius: 1,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        alignment: Alignment.center,
+        child: isLoading
             ? SizedBox(
-                width: 20,
-                height: 20,
+                width: 22,
+                height: 22,
                 child: CircularProgressIndicator(
-                  strokeWidth: 2,
+                  strokeWidth: 2.5,
                   color: foregroundColor,
                 ),
               )
-            : Icon(icon, size: 20),
-        label: Text(
-          label,
-          style: GoogleFonts.manrope(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-            color: foregroundColor,
-          ),
-        ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: backgroundColor,
-          foregroundColor: foregroundColor,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: borderColor != null
-                ? BorderSide(color: borderColor)
-                : BorderSide.none,
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-        ),
+            : Icon(icon, size: 24, color: foregroundColor),
       ),
     );
   }

@@ -2,43 +2,50 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../../../theme/app_theme.dart';
-import '../../../services/localization_service.dart';
+import 'package:roadrescue_shared/services/supabase_service.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
 
-class DemoCredentialsWidget extends StatelessWidget {
+class DemoCredentialsWidget extends StatefulWidget {
   final String selectedRole;
 
   const DemoCredentialsWidget({super.key, required this.selectedRole});
 
-  String get _email {
-    switch (selectedRole) {
-      case 'provider':
-        return 'provider.demo@roadrescue.com';
-      case 'admin':
-        return 'admin@roadrescue.com';
-      default:
-        return 'demo.driver@roadrescue.com';
-    }
+  @override
+  State<DemoCredentialsWidget> createState() => _DemoCredentialsWidgetState();
+}
+
+class _DemoCredentialsWidgetState extends State<DemoCredentialsWidget> {
+  String? _email;
+  String? _password;
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCredentials();
   }
 
-  String get _password {
-    switch (selectedRole) {
-      case 'provider':
-        return 'Provider@2026';
-      case 'admin':
-        return 'Admin@2026';
-      default:
-        return 'Driver@2026';
+  Future<void> _loadCredentials() async {
+    final isProvider = widget.selectedRole == 'provider';
+    final settings = await SupabaseService.instance.getAppSettings([
+      isProvider ? 'demo_provider_email' : 'demo_customer_email',
+      isProvider ? 'demo_provider_password' : 'demo_customer_password',
+    ]);
+    if (mounted) {
+      setState(() {
+        _email = settings[isProvider ? 'demo_provider_email' : 'demo_customer_email'];
+        _password = settings[isProvider ? 'demo_provider_password' : 'demo_customer_password'];
+        _loaded = true;
+      });
     }
   }
 
   String get _roleLabel {
     final l = LocalizationService.instance;
-    switch (selectedRole) {
+    switch (widget.selectedRole) {
       case 'provider':
         return l.t('provider');
-      case 'admin':
-        return l.t('admin');
       default:
         return l.t('driver');
     }
@@ -57,19 +64,20 @@ class DemoCredentialsWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!_loaded) return const SizedBox.shrink();
+    final email = _email;
+    final password = _password;
+    if (email == null || password == null) return const SizedBox.shrink();
+
     final l = LocalizationService.instance;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: selectedRole == 'admin'
-            ? AppTheme.warningContainer.withAlpha(180)
-            : AppTheme.primaryContainer.withAlpha(128),
+        color: AppTheme.primaryContainer.withAlpha(128),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: selectedRole == 'admin'
-              ? AppTheme.warningContainer
-              : AppTheme.primaryContainer,
+          color: AppTheme.primaryContainer,
           width: 1.5,
         ),
       ),
@@ -78,14 +86,10 @@ class DemoCredentialsWidget extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(
-                selectedRole == 'admin'
-                    ? Icons.admin_panel_settings_outlined
-                    : Icons.info_outline_rounded,
+              const Icon(
+                Icons.info_outline_rounded,
                 size: 16,
-                color: selectedRole == 'admin'
-                    ? AppTheme.warning
-                    : AppTheme.primary,
+                color: AppTheme.primary,
               ),
               const SizedBox(width: 6),
               Text(
@@ -93,9 +97,7 @@ class DemoCredentialsWidget extends StatelessWidget {
                 style: GoogleFonts.manrope(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
-                  color: selectedRole == 'admin'
-                      ? AppTheme.warning
-                      : AppTheme.primary,
+                  color: AppTheme.primary,
                 ),
               ),
             ],
@@ -103,14 +105,14 @@ class DemoCredentialsWidget extends StatelessWidget {
           const SizedBox(height: 10),
           _CredentialRow(
             label: l.t('email'),
-            value: _email,
-            onCopy: () => _copyToClipboard(context, _email, l.t('email')),
+            value: email,
+            onCopy: () => _copyToClipboard(context, email, l.t('email')),
           ),
           const SizedBox(height: 6),
           _CredentialRow(
             label: l.t('password'),
-            value: _password,
-            onCopy: () => _copyToClipboard(context, _password, l.t('password')),
+            value: password,
+            onCopy: () => _copyToClipboard(context, password, l.t('password')),
           ),
         ],
       ),

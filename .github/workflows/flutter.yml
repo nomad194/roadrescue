@@ -15,7 +15,6 @@ jobs:
         with:
           channel: stable
           cache: true
-      - run: cp env.example.json env.json
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test

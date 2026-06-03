@@ -3,9 +3,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import '../../../theme/app_theme.dart';
-import '../../../services/localization_service.dart';
-import '../../../services/location_service.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
+import 'package:roadrescue_shared/services/location_service.dart';
 
 class LocationCardWidget extends StatefulWidget {
   final Function(double lat, double lng, String address)? onLocationDetected;
@@ -50,10 +50,10 @@ class _LocationCardWidgetState extends State<LocationCardWidget>
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
     
-    // Load cached location on init
+    // Load cached location on init; auto-acquire GPS if none cached
     _loadCachedLocation();
   }
-  
+
   Future<void> _loadCachedLocation() async {
     final cached = await LocationService.getLastKnownLocation();
     if (cached != null && mounted) {
@@ -65,6 +65,9 @@ class _LocationCardWidgetState extends State<LocationCardWidget>
       });
       // Notify parent
       widget.onLocationDetected?.call(_latitude!, _longitude!, _address);
+    } else {
+      // No cached location — auto-acquire GPS
+      await _acquireLocation();
     }
   }
 
@@ -517,6 +520,9 @@ class _LocationCardWidgetState extends State<LocationCardWidget>
               options: MapOptions(
                 initialCenter: LatLng(_latitude!, _longitude!),
                 initialZoom: 16,
+                interactionOptions: const InteractionOptions(
+                  flags: InteractiveFlag.none,
+                ),
               ),
               children: [
                 TileLayer(

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../../../theme/app_theme.dart';
-import '../../../services/localization_service.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
 
 class RoleToggleWidget extends StatelessWidget {
   final String selectedRole;
@@ -43,18 +43,6 @@ class RoleToggleWidget extends StatelessWidget {
                 icon: Icons.directions_car_rounded,
                 isSelected: selectedRole == 'customer',
                 onTap: () => onRoleChanged('customer'),
-              ),
-              _RoleTab(
-                label: l.t('provider'),
-                icon: Icons.build_circle_rounded,
-                isSelected: selectedRole == 'provider',
-                onTap: () => onRoleChanged('provider'),
-              ),
-              _RoleTab(
-                label: l.t('admin'),
-                icon: Icons.admin_panel_settings_outlined,
-                isSelected: selectedRole == 'admin',
-                onTap: () => onRoleChanged('admin'),
               ),
             ],
           ),

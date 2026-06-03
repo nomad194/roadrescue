@@ -2,16 +2,16 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:flutter_stripe/flutter_stripe.dart' hide Card;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import './config/app_constants.dart';
-import './config/app_env.dart';
-import './services/localization_service.dart';
-import './services/notification_service.dart';
-import './services/supabase_service.dart';
-import './services/theme_service.dart';
-import './widgets/custom_error_widget.dart';
+import 'package:roadrescue_shared/config/app_constants.dart';
+import 'package:roadrescue_shared/config/app_env.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
+import 'package:roadrescue_shared/services/notification_service.dart';
+import 'package:roadrescue_shared/services/stripe_service.dart';
+import 'package:roadrescue_shared/services/supabase_service.dart';
+import 'package:roadrescue_shared/services/theme_service.dart';
+import 'package:roadrescue_shared/widgets/custom_error_widget.dart';
 import 'core/app_export.dart';
 
 void main() async {
@@ -22,8 +22,8 @@ void main() async {
     GoogleFonts.config.allowRuntimeFetching = false;
   }
 
-  // Load env.json (asset) or --dart-define-from-file before services start
-  await AppEnv.load();
+  // Load credentials from --dart-define or --dart-define-from-file
+  AppEnv.load();
 
   // 1. Initialize Supabase (CRITICAL)
   await SupabaseService.initialize();
@@ -36,37 +36,29 @@ void main() async {
 
   // 2. Initialize Other Services
   try {
-    Stripe.publishableKey = AppEnv.stripePublishableKey;
-    if (kIsWeb) {
-      await Stripe.instance.applySettings();
-    }
+    await StripeService.initialize();
   } catch (e) {
-    debugPrint('Failed to initialize Stripe: $e');
   }
 
   try {
     await LocalizationService.instance.initialize();
   } catch (e) {
-    debugPrint('Failed to initialize localization: $e');
   }
 
   try {
     final vsRaw = await SupabaseService.instance.getAppSetting('vehicle_size_translations');
     AppConstants.setVehicleSizeTranslations(vsRaw);
   } catch (e) {
-    debugPrint('Failed to load vehicle size translations: $e');
   }
 
   try {
     await NotificationService.instance.initialize();
   } catch (e) {
-    debugPrint('Failed to initialize notifications: $e');
   }
 
   try {
     await ThemeService.instance.initialize();
   } catch (e) {
-    debugPrint('Failed to initialize theme: $e');
   }
 
   bool hasShownError = false;
@@ -224,7 +216,7 @@ class _MyAppState extends State<MyApp> {
             secondary: AppTheme.secondary,
           ),
           themeMode: ThemeMode.light,
-          supportedLocales: LocalizationService.supportedLanguages.keys
+          supportedLocales: LocalizationService.instance.enabledLanguages.keys
               .map((code) => Locale(code))
               .toList(),
           localizationsDelegates: const [

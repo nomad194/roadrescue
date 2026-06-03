@@ -9,7 +9,7 @@ void main() {
     expect(RouteGuard.isPublicRoute(AppRoutes.initial), isTrue);
   });
 
-  test('admin route is not public', () {
-    expect(RouteGuard.isPublicRoute(AppRoutes.adminDashboardScreen), isFalse);
+  test('provider route is not public', () {
+    expect(RouteGuard.isPublicRoute(AppRoutes.providerDocumentsScreen), isFalse);
   });
 }

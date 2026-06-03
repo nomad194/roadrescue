@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../../theme/app_theme.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
 import '../../routes/app_routes.dart';
-import '../../widgets/language_selector_widget.dart';
-import '../../services/localization_service.dart';
+import 'package:roadrescue_shared/widgets/language_selector_widget.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../services/supabase_service.dart';
+import 'package:roadrescue_shared/services/supabase_service.dart';
 
 class CustomerProfileScreen extends StatefulWidget {
   const CustomerProfileScreen({super.key});
@@ -19,6 +19,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
   bool _isSaving = false;
   bool _isLoading = true;
   bool _isUploadingAvatar = false;
+  bool _isDeletingAccount = false;
 
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
@@ -71,7 +72,6 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading customer profile: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -147,7 +147,6 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
         );
       }
     } catch (e) {
-      debugPrint('Avatar upload error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -227,18 +226,6 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
         elevation: 0,
         scrolledUnderElevation: 1,
         shadowColor: Colors.black.withAlpha(20),
-        leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back_ios_new,
-            size: 18,
-            color: AppTheme.onSurface,
-          ),
-          onPressed: () => Navigator.pushNamedAndRemoveUntil(
-            context,
-            AppRoutes.serviceRequestScreen,
-            (r) => false,
-          ),
-        ),
         title: Text(
           l.t('my_profile'),
           style: GoogleFonts.manrope(
@@ -248,8 +235,6 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
           ),
         ),
         actions: [
-          const LanguageSelectorWidget(),
-          const SizedBox(width: 8),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: _isEditing
@@ -313,19 +298,31 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  _buildProfileHeader(l),
-                  const SizedBox(height: 20),
-                  _buildInfoCard(l),
-                  const SizedBox(height: 16),
-                  _buildStatsCard(l),
-                  const SizedBox(height: 16),
-                  _buildActionsCard(l),
-                ],
-              ),
+          : Stack(
+              children: [
+                SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      _buildProfileHeader(l),
+                      const SizedBox(height: 20),
+                      _buildInfoCard(l),
+                      const SizedBox(height: 16),
+                      _buildStatsCard(l),
+                      const SizedBox(height: 16),
+                      _buildActionsCard(l),
+                      SizedBox(height: MediaQuery.paddingOf(context).bottom + 80),
+                    ],
+                  ),
+                ),
+                if (_isDeletingAccount)
+                  Container(
+                    color: AppTheme.background.withAlpha(180),
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+              ],
             ),
     );
   }
@@ -635,6 +632,117 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
     );
   }
 
+  Future<void> _showDeleteAccountDialog(LocalizationService l) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: Row(
+          children: [
+            const Icon(Icons.delete_forever, color: AppTheme.error, size: 28),
+            const SizedBox(width: 12),
+            Text(
+              l.t('delete_account'),
+              style: GoogleFonts.manrope(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.onSurface,
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          l.t('delete_account_message'),
+          style: GoogleFonts.manrope(
+            fontSize: 14,
+            color: AppTheme.onSurfaceVariant,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(
+              l.t('cancel'),
+              style: GoogleFonts.manrope(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.error,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: Text(
+              l.t('delete'),
+              style: GoogleFonts.manrope(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      setState(() => _isDeletingAccount = true);
+      try {
+        final userId = SupabaseService.instance.currentUser?.id;
+        if (userId == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(l.t('error'))),
+            );
+          }
+          return;
+        }
+
+        final result = await SupabaseService.instance.deleteUserAccount(userId);
+
+        if (!mounted) return;
+
+        if (result['success'] == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(l.t('account_deleted'))),
+          );
+          await SupabaseService.instance.signOut();
+          if (mounted) {
+            Navigator.pushNamedAndRemoveUntil(
+              context,
+              AppRoutes.signUpLoginScreen,
+              (r) => false,
+            );
+          }
+        } else {
+          final errorMsg = result['error']?.toString() ?? l.t('error');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${l.t('error')}: $errorMsg')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${l.t('error')}: $e')),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isDeletingAccount = false);
+        }
+      }
+    }
+  }
+
   Widget _buildActionsCard(LocalizationService l) {
     return Container(
       decoration: BoxDecoration(
@@ -673,14 +781,81 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
           ),
           const Divider(height: 1, color: AppTheme.outlineVariant),
           _buildActionRow(
+            Icons.delete_forever,
+            l.t('delete_account'),
+            AppTheme.error,
+            () => _showDeleteAccountDialog(l),
+          ),
+          const Divider(height: 1, color: AppTheme.outlineVariant),
+          _buildActionRow(
             Icons.logout_rounded,
             l.t('sign_out'),
             AppTheme.error,
-            () => Navigator.pushNamedAndRemoveUntil(
-              context,
-              AppRoutes.signUpLoginScreen,
-              (r) => false,
-            ),
+            () async {
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  title: Text(
+                    l.t('sign_out'),
+                    style: GoogleFonts.manrope(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.onSurface,
+                    ),
+                  ),
+                  content: Text(
+                    'Are you sure you want to sign out?',
+                    style: GoogleFonts.manrope(
+                      fontSize: 14,
+                      color: AppTheme.onSurfaceVariant,
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: Text(
+                        l.t('cancel'),
+                        style: GoogleFonts.manrope(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.error,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: Text(
+                        l.t('sign_out'),
+                        style: GoogleFonts.manrope(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+              if (confirmed == true && mounted) {
+                await SupabaseService.instance.signOut();
+                if (mounted) {
+                  Navigator.pushNamedAndRemoveUntil(
+                    context,
+                    AppRoutes.signUpLoginScreen,
+                    (r) => false,
+                  );
+                }
+              }
+            },
           ),
         ],
       ),

@@ -8,7 +8,6 @@ void main() {
     expect(AppRoutes.signUpLoginScreen, '/sign-up-login-screen');
     expect(AppRoutes.serviceRequestScreen, '/service-request-screen');
     expect(AppRoutes.jobRequestsScreen, '/job-requests-screen');
-    expect(AppRoutes.adminDashboardScreen, '/admin-dashboard-screen');
     expect(AppRoutes.customerProfileScreen, '/customer-profile-screen');
     expect(AppRoutes.providerProfileScreen, '/provider-profile-screen');
     expect(AppRoutes.paymentScreen, '/payment-screen');

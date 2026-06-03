@@ -4,9 +4,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_stripe/flutter_stripe.dart' as stripe;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../theme/app_theme.dart';
-import '../../services/localization_service.dart';
-import '../../services/notification_service.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
+import 'package:roadrescue_shared/services/notification_service.dart';
 import '../../routes/app_routes.dart';
 
 class PaymentScreen extends StatefulWidget {

@@ -5,10 +5,10 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../routes/app_routes.dart';
-import '../../services/localization_service.dart';
-import '../../services/mfa_service.dart';
-import '../../services/supabase_service.dart';
-import '../../theme/app_theme.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
+import 'package:roadrescue_shared/services/mfa_service.dart';
+import 'package:roadrescue_shared/services/supabase_service.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
 
 class PhoneVerificationScreen extends StatefulWidget {
   const PhoneVerificationScreen({super.key});
@@ -101,12 +101,6 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
       Navigator.pushNamedAndRemoveUntil(
         context,
         AppRoutes.providerDocumentsScreen,
-        (r) => false,
-      );
-    } else if (_userRole == 'admin') {
-      Navigator.pushNamedAndRemoveUntil(
-        context,
-        AppRoutes.adminDashboardScreen,
         (r) => false,
       );
     } else {

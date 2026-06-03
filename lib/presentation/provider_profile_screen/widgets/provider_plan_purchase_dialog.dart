@@ -3,9 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../../theme/app_theme.dart';
-import '../../../services/localization_service.dart';
-import '../../../services/supabase_service.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
+import 'package:roadrescue_shared/services/supabase_service.dart';
 import '../../../routes/app_routes.dart';
 
 class ProviderPlanPurchaseDialog extends StatefulWidget {
@@ -30,6 +31,8 @@ class _ProviderPlanPurchaseDialogState extends State<ProviderPlanPurchaseDialog>
   File? _receiptFile;
   String _billingCycle = 'monthly';
   bool _documentsNotVerified = false;
+  bool _showProviderPlanPricing = true;
+  String _providerPlanManagementUrl = '';
 
   // Subscription state from provider_subscription_state
   bool _trialUsed = false;
@@ -61,13 +64,17 @@ class _ProviderPlanPurchaseDialogState extends State<ProviderPlanPurchaseDialog>
         }
       }
 
+      // Load plan pricing visibility settings
+      final showPricingSetting = await SupabaseService.instance.getAppSetting('show_provider_plan_pricing');
+      final planUrlSetting = await SupabaseService.instance.getAppSetting('provider_plan_management_url');
+
       // Load plans
       final plansResponse = await Supabase.instance.client
           .from('subscription_plans')
           .select()
           .eq('is_active', true)
           .order('price_monthly', ascending: true);
-      
+
       // Load enabled payment methods
       final methods = await SupabaseService.instance.getProviderPaymentMethods();
 
@@ -79,6 +86,8 @@ class _ProviderPlanPurchaseDialogState extends State<ProviderPlanPurchaseDialog>
       
       if (mounted) {
         setState(() {
+          _showProviderPlanPricing = showPricingSetting != 'false';
+          _providerPlanManagementUrl = planUrlSetting ?? '';
           _plans = List<Map<String, dynamic>>.from(plansResponse);
           _paymentMethods = methods;
           _trialUsed = subState['trial_used'] as bool? ?? false;
@@ -89,7 +98,6 @@ class _ProviderPlanPurchaseDialogState extends State<ProviderPlanPurchaseDialog>
         });
       }
     } catch (e) {
-      debugPrint('Error loading plan data: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -254,7 +262,6 @@ class _ProviderPlanPurchaseDialogState extends State<ProviderPlanPurchaseDialog>
         );
       }
     } catch (e) {
-      debugPrint('Purchase error: $e');
       _showError('${l.t('failed_create_subscription')}: $e');
     } finally {
       if (mounted) setState(() => _isPurchasing = false);
@@ -462,15 +469,76 @@ class _ProviderPlanPurchaseDialogState extends State<ProviderPlanPurchaseDialog>
             ),
 
             // Content
-            Flexible(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Plans Section
-                    Text(
-                      l.t('available_plans'),
+            if (!_showProviderPlanPricing)
+              Flexible(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.open_in_browser_rounded,
+                        size: 56,
+                        color: AppTheme.primary,
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        l.t('manage_plans'),
+                        style: GoogleFonts.manrope(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.onSurface,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        l.t('manage_plans_not_configured'),
+                        style: GoogleFonts.manrope(
+                          fontSize: 13,
+                          color: AppTheme.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _providerPlanManagementUrl.isNotEmpty
+                              ? () async {
+                                  final uri = Uri.parse(_providerPlanManagementUrl);
+                                  if (await canLaunchUrl(uri)) {
+                                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                  }
+                                }
+                              : null,
+                          icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                          label: Text(
+                            l.t('manage_plans'),
+                            style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Plans Section
+                      Text(
+                        l.t('available_plans'),
                       style: GoogleFonts.manrope(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
@@ -613,15 +681,18 @@ class _ProviderPlanPurchaseDialogState extends State<ProviderPlanPurchaseDialog>
                                       children: [
                                         Row(
                                           children: [
-                                            Text(
-                                              l.translateContent(
-                                                plan['name_translations'] as Map<String, dynamic>?,
-                                                fallbackText: plan['name'] as String? ?? l.t('unnamed_plan'),
-                                              ),
-                                              style: GoogleFonts.manrope(
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.w700,
-                                                color: AppTheme.onSurface,
+                                            Flexible(
+                                              child: Text(
+                                                l.translateContent(
+                                                  plan['name_translations'] as Map<String, dynamic>?,
+                                                  fallbackText: plan['name'] as String? ?? l.t('unnamed_plan'),
+                                                ),
+                                                style: GoogleFonts.manrope(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: AppTheme.onSurface,
+                                                ),
+                                                overflow: TextOverflow.ellipsis,
                                               ),
                                             ),
                                             if (isCurrentPlan) ...[
@@ -1026,71 +1097,95 @@ class _ProviderPlanPurchaseDialogState extends State<ProviderPlanPurchaseDialog>
             ),
 
             // Footer buttons
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                border: Border(top: BorderSide(color: AppTheme.outlineVariant)),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextButton(
-                      onPressed: _isPurchasing ? null : () => Navigator.of(context).pop(),
-                      child: Text(
-                        l.t('cancel'),
-                        style: GoogleFonts.manrope(
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.onSurfaceVariant,
+            if (!_showProviderPlanPricing)
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  border: Border(top: BorderSide(color: AppTheme.outlineVariant)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: Text(
+                          l.t('close'),
+                          style: GoogleFonts.manrope(
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.onSurfaceVariant,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    child: Builder(builder: (context) {
-                      final selectedPlan = _selectedPlanId != null
-                          ? _plans.firstWhere((p) => p['id'] == _selectedPlanId, orElse: () => {})
-                          : {};
-                      final trialDays = (selectedPlan['trial_days'] as num?)?.toInt() ?? 0;
-                      final hasTrial = trialDays > 0;
-                      final canTrial = hasTrial && (!_trialUsed ||
-                          (_trialResetAllowed && _trialPlanId != _selectedPlanId));
-                      
-                      return ElevatedButton(
-                        onPressed: _isPurchasing ? null : _purchasePlan,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: canTrial ? AppTheme.success : AppTheme.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
+                  ],
+                ),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  border: Border(top: BorderSide(color: AppTheme.outlineVariant)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        onPressed: _isPurchasing ? null : () => Navigator.of(context).pop(),
+                        child: Text(
+                          l.t('cancel'),
+                          style: GoogleFonts.manrope(
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.onSurfaceVariant,
                           ),
                         ),
-                        child: _isPurchasing
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 2,
+                      child: Builder(builder: (context) {
+                        final selectedPlan = _selectedPlanId != null
+                            ? _plans.firstWhere((p) => p['id'] == _selectedPlanId, orElse: () => {})
+                            : {};
+                        final trialDays = (selectedPlan['trial_days'] as num?)?.toInt() ?? 0;
+                        final hasTrial = trialDays > 0;
+                        final canTrial = hasTrial && (!_trialUsed ||
+                            (_trialResetAllowed && _trialPlanId != _selectedPlanId));
+
+                        return ElevatedButton(
+                          onPressed: _isPurchasing ? null : _purchasePlan,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: canTrial ? AppTheme.success : AppTheme.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: _isPurchasing
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Text(
+                                  canTrial
+                                      ? l.t('start_trial').replaceAll('{days}', trialDays.toString())
+                                      : l.t('purchase_plan'),
+                                  style: GoogleFonts.manrope(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 15,
+                                  ),
                                 ),
-                              )
-                            : Text(
-                                canTrial 
-                                    ? l.t('start_trial').replaceAll('{days}', trialDays.toString())
-                                    : l.t('purchase_plan'),
-                                style: GoogleFonts.manrope(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 15,
-                                ),
-                              ),
-                      );
-                    }),
-                  ),
-                ],
+                        );
+                      }),
+                    ),
+                  ],
+                ),
               ),
-            ),
           ],
         ),
       ),

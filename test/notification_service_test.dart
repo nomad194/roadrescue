@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:roadrescue/services/notification_service.dart';
+import 'package:roadrescue_shared/services/notification_service.dart';
 
 void main() {
   test('NotificationService is a singleton', () {

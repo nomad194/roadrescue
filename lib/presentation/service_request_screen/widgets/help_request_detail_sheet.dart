@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../../../theme/app_theme.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
 import '../../../routes/app_routes.dart';
-import '../../../services/localization_service.dart';
-import '../../../services/notification_service.dart';
-import '../../../services/supabase_service.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
+import 'package:roadrescue_shared/services/notification_service.dart';
+import 'package:roadrescue_shared/services/supabase_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import './active_request_banner_widget.dart';
 
@@ -233,7 +233,6 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
         margin: const EdgeInsets.all(16),
       ),
     );
-    debugPrint('WhatsApp URL: $url');
   }
 
   @override
@@ -299,8 +298,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                   _buildInfoRow(
                     Icons.description_outlined,
                     AppTheme.primary,
-                    widget.request.description?.isNotEmpty == true &&
-                        widget.request.description != 'No additional details provided.'
+                    widget.request.description?.isNotEmpty == true
                         ? widget.request.description
                         : l.t('no_additional_details'),
                   ),
@@ -989,11 +987,11 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
     return _buildPromptCard(
       l,
       title: status == HelpRequestStatus.awaitingReconfirmation
-          ? "⚠️ Re-confirmation Required"
-          : "Has the service been completed?",
+          ? l.t('reconfirmation_required')
+          : l.t('service_completed_question'),
       subtitle: status == HelpRequestStatus.awaitingReconfirmation
-          ? "The provider disagreed. Please confirm again: was the job done?"
-          : "The provider has marked this job as finished.",
+          ? l.t('provider_disagreed_prompt')
+          : l.t('provider_marked_finished'),
     );
   }
 
@@ -1017,7 +1015,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                 child: OutlinedButton(
                   onPressed: _isSubmittingResponse ? null : () => _submitResponse(false),
                   style: OutlinedButton.styleFrom(foregroundColor: AppTheme.error, side: const BorderSide(color: AppTheme.error)),
-                  child: const Text("No, not yet"),
+                  child: Text(l.t('no_not_yet')),
                 ),
               ),
               const SizedBox(width: 12),
@@ -1025,7 +1023,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                 child: ElevatedButton(
                   onPressed: _isSubmittingResponse ? null : () => _submitResponse(true),
                   style: ElevatedButton.styleFrom(backgroundColor: AppTheme.success, foregroundColor: Colors.white),
-                  child: const Text("Yes, completed"),
+                  child: Text(l.t('yes_completed')),
                 ),
               ),
             ],
@@ -1045,7 +1043,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
           const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
           const SizedBox(height: 12),
           Text(
-            "Waiting for provider confirmation...",
+            l.t('waiting_provider_confirmation'),
             style: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.muted),
           ),
         ],
@@ -1065,8 +1063,8 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("Job Disputed", style: GoogleFonts.manrope(fontWeight: FontWeight.w800, color: AppTheme.error)),
-                const Text("Both parties disagreed twice. An admin has been notified to mediate.", style: TextStyle(fontSize: 12)),
+                Text(l.t('job_disputed'), style: GoogleFonts.manrope(fontWeight: FontWeight.w800, color: AppTheme.error)),
+                Text(l.t('job_disputed_description'), style: const TextStyle(fontSize: 12)),
               ],
             ),
           ),

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../../theme/app_theme.dart';
-import '../../services/supabase_service.dart';
-import '../../services/localization_service.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
+import 'package:roadrescue_shared/services/supabase_service.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
 
-import '../../widgets/review_dialog_widget.dart';
+import 'package:roadrescue_shared/widgets/review_dialog_widget.dart';
 
 class ServiceHistoryScreen extends StatefulWidget {
   const ServiceHistoryScreen({super.key});
@@ -42,14 +42,6 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
       appBar: AppBar(
         backgroundColor: AppTheme.surface,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back_ios_new,
-            size: 18,
-            color: AppTheme.onSurface,
-          ),
-          onPressed: () => Navigator.pop(context),
-        ),
         title: Text(
           l.t('service_history'),
           style: GoogleFonts.manrope(
@@ -94,7 +86,7 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
   Widget _buildHistoryList(LocalizationService l) {
     final String? currentUserId = SupabaseService.instance.currentUser?.id;
     return ListView.separated(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
       itemCount: _history.length,
       separatorBuilder: (_, _) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
@@ -304,7 +296,6 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
           );
           _loadHistory();
         } catch (e) {
-          debugPrint('Error toggling visibility: $e');
         }
       },
       child: Row(

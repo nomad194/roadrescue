@@ -4,14 +4,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:convert';
 import 'dart:math' as math;
 
-import '../../config/app_constants.dart';
+import 'package:roadrescue_shared/config/app_constants.dart';
 import '../../routes/app_routes.dart';
-import '../../services/supabase_service.dart';
-import '../../services/localization_service.dart';
-import '../../theme/app_theme.dart';
-import '../../widgets/empty_state_widget.dart';
-import '../../widgets/loading_skeleton_widget.dart';
-import '../../widgets/service_area_map_widget.dart';
+import 'package:roadrescue_shared/services/supabase_service.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
+import 'package:roadrescue_shared/services/theme_service.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
+import 'package:roadrescue_shared/widgets/empty_state_widget.dart';
+import 'package:roadrescue_shared/widgets/loading_skeleton_widget.dart';
+import 'package:roadrescue_shared/widgets/service_area_map_widget.dart';
 import '../provider_profile_screen/widgets/provider_plan_purchase_dialog.dart';
 import './widgets/job_request_card_widget.dart';
 import './widgets/provider_stats_header_widget.dart';
@@ -63,7 +64,12 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   // Profile
   String _providerName = '';
   String _locationLabel = '';
-  bool _showRoleSwitcher = true;
+  bool _isAvailable = true;
+  bool _isSavingAvailability = false;
+
+  // Stats
+  double _averageRating = 0.0;
+  bool _isLoadingStats = false;
 
   List<_JobRequest> get _filteredJobs {
     return _jobs.where((job) {
@@ -93,6 +99,12 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     _subscribeToJobUpdates();
   }
 
+  double get _maxServiceRange {
+    final plan = _activeSubscription?['plan'] as Map<String, dynamic>?;
+    final raw = (plan?['max_radius_miles'] as num?)?.toDouble() ?? 200.0;
+    return raw.clamp(5.0, 500.0);
+  }
+
   Future<void> _initData() async {
     // 1. Load critical dependency data first
     await Future.wait([
@@ -102,8 +114,13 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
       _loadPlans(),
       _loadProviderRange(),
       _loadProviderProfile(),
-      _loadRoleSwitcherSetting(),
+      _loadProviderStats(),
     ]);
+
+    // Enforce service range limit after subscription and range are loaded
+    if (_serviceRange > _maxServiceRange) {
+      await _saveServiceRange(_maxServiceRange);
+    }
 
     // 2. ONLY then load jobs using the now-populated enabled categories
     await _loadJobs();
@@ -126,8 +143,13 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         categoryIds: _enabledServices.toList(),
       );
       if (mounted) {
+        final allJobs = data.map(_mapToJobRequest).toList();
+        // If provider is unavailable, only show jobs already assigned to them
+        final filteredJobs = _isAvailable
+            ? allJobs
+            : allJobs.where((j) => j.providerId == SupabaseService.instance.currentUser?.id).toList();
         setState(() {
-          _jobs = data.map(_mapToJobRequest).toList();
+          _jobs = filteredJobs;
           _isLoading = false;
         });
         _listController.reset();
@@ -306,11 +328,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   Future<void> _loadProviderServices() async {
     final userId = SupabaseService.instance.currentUser?.id;
     if (userId == null) return;
-
-    debugPrint('Loading provider services for user: $userId');
     final configs = await SupabaseService.instance.getProviderServices(userId);
-    debugPrint('Loaded ${configs.length} provider service configs: $configs');
-    
     if (mounted) {
       setState(() {
         // Clear and reload everything from database to ensure fresh data
@@ -320,8 +338,6 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         for (final config in configs) {
           final id = config['category_id'].toString();
           _enabledServices.add(id);
-          debugPrint('Enabled service: $id');
-
           final distanceRules = (config['distance_rules'] as List?)
                   ?.map(
                     (r) => _DistanceRule(
@@ -352,9 +368,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
             timeSurcharges: timeSurcharges,
             supportedVehicleSizes: List<String>.from(config['supported_vehicle_sizes'] ?? []),
           );
-          debugPrint('Loaded pricing for service $id: ${_pricingMap[id]?.basePrice}');
         }
-        debugPrint('Total enabled services: ${_enabledServices.length}');
       });
     }
   }
@@ -426,18 +440,13 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     } catch (_) {}
   }
 
-  Future<void> _loadRoleSwitcherSetting() async {
-    final val = await SupabaseService.instance.getAppSetting('show_role_switcher');
-    if (mounted) setState(() => _showRoleSwitcher = val != 'false');
-  }
-
   Future<void> _loadProviderProfile() async {
     final userId = SupabaseService.instance.currentUser?.id;
     if (userId == null) return;
     try {
       final res = await Supabase.instance.client
           .from('user_profiles')
-          .select('full_name, address, selected_city_id, selected_state_id')
+          .select('full_name, address, selected_city_id, selected_state_id, is_available')
           .eq('id', userId)
           .maybeSingle();
       if (res != null && mounted) {
@@ -467,11 +476,29 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
           setState(() {
             _providerName = res['full_name'] as String? ?? '';
             _locationLabel = location;
+            _isAvailable = res['is_available'] as bool? ?? true;
           });
         }
       }
     } catch (e) {
-      debugPrint('Error loading provider profile: $e');
+    }
+  }
+
+  Future<void> _loadProviderStats() async {
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) return;
+
+    setState(() => _isLoadingStats = true);
+    try {
+      final ratingData = await SupabaseService.instance.getProviderRating(userId);
+      if (mounted) {
+        setState(() {
+          _averageRating = ratingData['average_rating'] as double? ?? 0.0;
+          _isLoadingStats = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingStats = false);
     }
   }
 
@@ -479,17 +506,21 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     final userId = SupabaseService.instance.currentUser?.id;
     if (userId == null) return;
 
+    final clamped = value.clamp(5.0, _maxServiceRange);
+    if (mounted) setState(() => _serviceRange = clamped);
+
     setState(() => _isSavingRange = true);
     try {
       await Supabase.instance.client
           .from('user_profiles')
-          .update({'service_range_miles': value.toInt()})
+          .update({'service_range_miles': clamped.toInt()})
           .eq('id', userId);
 
       if (mounted) {
+        final l = LocalizationService.instance;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Service range updated successfully'),
+          SnackBar(
+            content: Text(l.t('service_range_updated')),
             backgroundColor: AppTheme.success,
             behavior: SnackBarBehavior.floating,
           ),
@@ -497,15 +528,62 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
       }
     } catch (_) {
       if (mounted) {
+        final l = LocalizationService.instance;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to update range'),
+          SnackBar(
+            content: Text(l.t('failed_update_range')),
             backgroundColor: AppTheme.error,
           ),
         );
       }
     } finally {
       if (mounted) setState(() => _isSavingRange = false);
+    }
+  }
+
+  Future<void> _toggleAvailability() async {
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) return;
+
+    final newValue = !_isAvailable;
+    setState(() => _isSavingAvailability = true);
+
+    try {
+      await Supabase.instance.client
+          .from('user_profiles')
+          .update({'is_available': newValue})
+          .eq('id', userId);
+
+      if (mounted) {
+        setState(() => _isAvailable = newValue);
+        final l = LocalizationService.instance;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              newValue ? l.t('available_msg') : l.t('unavailable_msg'),
+              style: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            backgroundColor: newValue ? AppTheme.success : AppTheme.warning,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        // Refresh job list so provider sees pending jobs immediately when becoming available
+        _loadJobs();
+      }
+    } catch (_) {
+      if (mounted) {
+        final l = LocalizationService.instance;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l.t('failed_update_availability')),
+            backgroundColor: AppTheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSavingAvailability = false);
     }
   }
 
@@ -531,7 +609,6 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         );
       }
     } catch (e) {
-      debugPrint('Error updating location: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -555,13 +632,20 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
       final String id = record['id']?.toString() ?? '';
       if (id.isEmpty) return;
 
-      // 1. Find existing job to handle partial payloads (REPLICA IDENTITY DEFAULT)
+      // 0. Check if provider is available - skip new jobs if unavailable
       final existingIdx = _jobs.indexWhere((j) => j.id == id);
+      final bool isExistingJob = existingIdx != -1;
+      if (!_isAvailable && !isExistingJob) {
+        // Provider is unavailable and this is a new job - don't show it
+        return;
+      }
+
+      // 1. Find existing job to handle partial payloads (REPLICA IDENTITY DEFAULT)
       final String serviceType = record['service_type'] as String? ?? 
-                                (existingIdx != -1 ? _jobs[existingIdx].serviceType : '');
+                                (isExistingJob ? _jobs[existingIdx].serviceType : '');
       
       final String providerId = record['provider_id']?.toString() ?? 
-                               (existingIdx != -1 ? _jobs[existingIdx].providerId ?? '' : '');
+                               (isExistingJob ? _jobs[existingIdx].providerId ?? '' : '');
 
       // 2. Filter by enabled categories — match service_type against all name translations
       final bool isMyJob = providerId == SupabaseService.instance.currentUser?.id;
@@ -596,11 +680,9 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         if (jobLat != null && jobLng != null) {
           final distance = _calculateDistance(_providerLat!, _providerLng!, jobLat, jobLng);
           withinRange = distance <= _serviceRange;
-          debugPrint('Realtime job ${record["id"]}: distance=${distance.toStringAsFixed(2)} mi, range=$_serviceRange mi, withinRange=$withinRange');
         } else {
           // Job has no GPS coordinates - can't verify distance, exclude it
           withinRange = false;
-          debugPrint('Realtime job ${record["id"]}: no GPS coordinates, excluding');
         }
       }
 
@@ -814,6 +896,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   }
 
   void _showLimitReached(String type, int limit) {
+    final l = LocalizationService.instance;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -821,23 +904,25 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
           children: [
             const Icon(Icons.lock_outline, color: AppTheme.warning),
             const SizedBox(width: 8),
-            const Text('Limit Reached'),
+            Text(l.t('limit_reached')),
           ],
         ),
         content: Text(
-          'Your current plan limits you to $limit $type. Upgrade your plan to add more.',
+          l.t('plan_limit_message')
+              .replaceAll('{limit}', '$limit')
+              .replaceAll('{type}', type),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
+            child: Text(l.t('close')),
           ),
           ElevatedButton(
             onPressed: () {
               Navigator.pop(ctx);
               setState(() => _currentTabIndex = 2); // Switch to Plans tab
             },
-            child: const Text('Upgrade Plan'),
+            child: Text(l.t('upgrade_plan')),
           ),
         ],
       ),
@@ -864,9 +949,6 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         canSetDistance: canSetDistance,
         canUseAfterHours: canUseAfterHours,
         onSave: (updated) async {
-          debugPrint('=== onSave callback called ===');
-          debugPrint('Updated pricing: ${updated.basePrice}');
-          
           // Update local map
           _pricingMap[id] = updated;
           
@@ -882,11 +964,8 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   }
 
   void _saveServices() async {
-    debugPrint('=== _saveServices called ===');
     final userId = SupabaseService.instance.currentUser?.id;
-    debugPrint('User ID: $userId');
     if (userId == null) {
-      debugPrint('ERROR: No user ID, returning early');
       return;
     }
 
@@ -900,19 +979,14 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
 
     try {
       final List<Map<String, dynamic>> servicesToSave = [];
-      debugPrint('Saving ${_enabledServices.length} enabled services');
-      
       if (_enabledServices.isEmpty) {
-        debugPrint('WARNING: No enabled services to save');
       }
       
       for (final id in _enabledServices) {
         final pricing = _pricingMap[id];
         if (pricing == null) {
-          debugPrint('ERROR: No pricing found for service $id');
           continue;
         }
-        debugPrint('Adding service $id to save list');
         servicesToSave.add({
           'category_id': int.tryParse(id),
           'base_price': pricing.basePrice,
@@ -939,19 +1013,13 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
               .toList(),
         });
       }
-
-      debugPrint('Services to save: $servicesToSave');
-      
       if (servicesToSave.isEmpty) {
-        debugPrint('WARNING: servicesToSave is empty, nothing to save');
       }
       
       await SupabaseService.instance.saveProviderServices(
         userId,
         servicesToSave,
       );
-      debugPrint('Services saved successfully');
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -963,8 +1031,6 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         );
       }
     } catch (e, stackTrace) {
-      debugPrint('ERROR in _saveServices: $e');
-      debugPrint('Stack trace: $stackTrace');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1087,140 +1153,52 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
   @override
   Widget build(BuildContext context) {
     final l = LocalizationService.instance;
+    final ts = ThemeService.instance;
+    final bgImage = ts.providerMainScreenBgImageUrl;
+    final bgOpacity = ts.providerMainScreenBgOpacity;
+    final bgColor = ts.providerMainScreenBg.withAlpha((255 * bgOpacity).round());
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: AppBar(
-        backgroundColor: AppTheme.surface,
-        elevation: 0,
-        scrolledUnderElevation: 1,
-        shadowColor: Colors.black.withAlpha(20),
-        surfaceTintColor: Colors.transparent,
-        leading: IconButton(
-          icon: const Icon(Icons.logout_rounded),
-          onPressed: _signOut,
-          tooltip: l.t('sign_out'),
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              l.t('job_requests'),
-              style: GoogleFonts.manrope(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.onSurface,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-            Text(
-              l.t('provider_dashboard'),
-              style: GoogleFonts.manrope(fontSize: 10, color: AppTheme.muted),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined, size: 20),
-            color: AppTheme.onSurface,
-            onPressed: () {},
-            visualDensity: VisualDensity.compact,
-          ),
-          IconButton(
-            icon: const Icon(Icons.person_outline_rounded, size: 20),
-            color: AppTheme.primary,
-            tooltip: l.t('my_profile'),
-            onPressed: () =>
-                Navigator.pushNamed(context, AppRoutes.providerProfileScreen),
-            visualDensity: VisualDensity.compact,
-          ),
-          if (_showRoleSwitcher)
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: InkWell(
-              onTap: () => Navigator.pushNamedAndRemoveUntil(
-                context,
-                AppRoutes.serviceRequestScreen,
-                (r) => false,
-              ),
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                decoration: BoxDecoration(
-                  color: AppTheme.primary.withAlpha(20),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.directions_car_outlined,
-                      size: 14,
-                      color: AppTheme.primary,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Driver',
-                      style: GoogleFonts.manrope(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Subscription required banner
-            if (!_hasActiveSubscription)
-              _buildSubscriptionRequiredBanner(l),
-            ProviderStatsHeaderWidget(
-              jobs: _jobs,
-              selectedStatus: _selectedStatusFilter,
-              onStatusChanged: _onStatusFilterChanged,
-              providerName: _providerName,
-              locationLabel: _locationLabel,
-            ),
-            _buildTabSelector(l),
-            Expanded(child: _buildTabContent(l)),
-          ],
-        ),
-      ),
-      floatingActionButton: _currentTabIndex == 0
-          ? FloatingActionButton.extended(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(l.t('select_job_detail')),
-                    behavior: SnackBarBehavior.floating,
-                    backgroundColor: AppTheme.onSurface,
-                    margin: const EdgeInsets.all(16),
-                  ),
-                );
-              },
-              backgroundColor: AppTheme.secondary,
-              foregroundColor: Colors.white,
-              icon: const Icon(Icons.send_rounded, size: 18),
-              label: Text(
-                l.t('send_quote'),
-                style: GoogleFonts.manrope(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+      backgroundColor: bgImage.isEmpty ? bgColor : null,
+      appBar: null,
+      body: Container(
+        decoration: bgImage.isNotEmpty
+          ? BoxDecoration(
+              image: DecorationImage(image: NetworkImage(bgImage), fit: BoxFit.cover),
+              color: bgColor,
             )
-          : null,  // No FAB for Services tab - auto-save handles everything
+          : null,
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Subscription required banner
+              if (!_hasActiveSubscription)
+                _buildSubscriptionRequiredBanner(l),
+              ProviderStatsHeaderWidget(
+                jobs: _jobs,
+                selectedStatus: _selectedStatusFilter,
+                onStatusChanged: _onStatusFilterChanged,
+                providerName: _providerName,
+                locationLabel: _locationLabel,
+                isAvailable: _isAvailable,
+                onAvailabilityToggle: _toggleAvailability,
+                isLoadingAvailability: _isSavingAvailability,
+                averageRating: _averageRating,
+                isLoadingRating: _isLoadingStats,
+                onNotificationPressed: () {},
+                onProfilePressed: () => Navigator.pushNamed(context, AppRoutes.providerProfileScreen),
+              ),
+              _buildTabSelector(l),
+              Expanded(child: _buildTabContent(l)),
+            ],
+          ),
+        ),
+      ),
+      floatingActionButton: null,  // Send quote button removed per requirements
     );
   }
 
   Widget _buildTabSelector(LocalizationService l) {
+    final ts = ThemeService.instance;
     final tabs = [
       {'label': l.t('job_requests'), 'icon': Icons.work_outline_rounded},
       {
@@ -1230,7 +1208,6 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     ];
 
     return Container(
-      color: AppTheme.surface,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
       child: Row(
         children: List.generate(tabs.length, (index) {
@@ -1247,12 +1224,12 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
                 ),
                 decoration: BoxDecoration(
                   color: isSelected
-                      ? AppTheme.primary
-                      : AppTheme.surfaceVariant.withAlpha(80),
+                      ? ts.providerMainTabSelectedBg
+                      : ts.providerMainTabUnselectedBg,
                   borderRadius: BorderRadius.circular(12),
                   border: isSelected
                       ? null
-                      : Border.all(color: AppTheme.outlineVariant),
+                      : Border.all(color: ts.providerMainCardBorder),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1261,8 +1238,8 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
                       tabs[index]['icon'] as IconData,
                       size: 18,
                       color: isSelected
-                          ? Colors.white
-                          : AppTheme.onSurfaceVariant,
+                          ? ts.providerMainTabSelectedText
+                          : ts.providerMainTabUnselectedText,
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -1271,8 +1248,8 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
                         fontSize: 9,
                         fontWeight: FontWeight.w700,
                         color: isSelected
-                            ? Colors.white
-                            : AppTheme.onSurfaceVariant,
+                            ? ts.providerMainTabSelectedText
+                            : ts.providerMainTabUnselectedText,
                       ),
                       textAlign: TextAlign.center,
                       maxLines: 1,
@@ -1356,8 +1333,10 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
     final plan = _activeSubscription?['plan'] as Map<String, dynamic>?;
     final int maxCats = plan?['max_categories'] as int? ?? 1;
     final String usageText = maxCats == 0
-        ? 'Unlimited categories'
-        : '${_enabledServices.length} / $maxCats categories used';
+        ? l.t('unlimited_categories')
+        : l.t('categories_used')
+            .replaceAll('{current}', '${_enabledServices.length}')
+            .replaceAll('{max}', '$maxCats');
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -1381,7 +1360,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Select services you provide and configure your pricing rules.',
+                    l.t('select_services_pricing_rules'),
                     style: GoogleFonts.manrope(
                       fontSize: 12,
                       color: AppTheme.onSurfaceVariant,
@@ -1419,10 +1398,10 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              childAspectRatio: 1.4,
+              crossAxisCount: 3,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+              childAspectRatio: 1.1,
             ),
             itemCount: _allServices.length,
             itemBuilder: (context, index) {
@@ -1474,6 +1453,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
         border: Border.all(color: AppTheme.outlineVariant),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -1505,6 +1485,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
               latitude: _providerLat!,
               longitude: _providerLng!,
               serviceRange: _serviceRange,
+              maxRange: _maxServiceRange,
               distanceUnit: _distanceUnit,
               onRangeChanged: (v) => setState(() => _serviceRange = v),
               onRangeChangeEnd: _saveServiceRange,
@@ -1531,7 +1512,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
                     Icon(Icons.location_off, size: 48, color: AppTheme.muted),
                     const SizedBox(height: 12),
                     Text(
-                      'Set your location in Profile',
+                      l.t('set_location_in_profile'),
                       style: GoogleFonts.manrope(
                         fontSize: 14,
                         color: AppTheme.muted,
@@ -1539,7 +1520,7 @@ class _JobRequestsScreenState extends State<JobRequestsScreen>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Go to Profile > Personal Info > Coordinates',
+                      l.t('go_to_profile_coordinates'),
                       style: GoogleFonts.manrope(
                         fontSize: 12,
                         color: AppTheme.onSurfaceVariant,
@@ -1703,12 +1684,15 @@ class _ServiceToggleCard extends StatelessWidget {
         service['name'] ??
         '';
     final String iconEmoji = service['icon_emoji'] ?? '🔧';
+    final String? iconImageUrl = service['icon_image_url'] as String?;
 
     return GestureDetector(
       onTap: onToggle,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(14),
+        padding: iconImageUrl != null && iconImageUrl.isNotEmpty
+            ? EdgeInsets.zero
+            : const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: isEnabled ? AppTheme.primary.withAlpha(20) : AppTheme.surface,
           borderRadius: BorderRadius.circular(14),
@@ -1717,41 +1701,124 @@ class _ServiceToggleCard extends StatelessWidget {
             width: 2,
           ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(7),
-                  decoration: BoxDecoration(
-                    color: isEnabled
-                        ? AppTheme.primary.withAlpha(30)
-                        : AppTheme.surfaceVariant,
-                    borderRadius: BorderRadius.circular(8),
+        clipBehavior: iconImageUrl != null && iconImageUrl.isNotEmpty
+            ? Clip.antiAlias
+            : Clip.none,
+        child: iconImageUrl != null && iconImageUrl.isNotEmpty
+            ? Stack(
+                fit: StackFit.expand,
+                children: [
+                  // Full background image
+                  Image.network(
+                    iconImageUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      color: isEnabled
+                          ? AppTheme.primary.withAlpha(30)
+                          : AppTheme.surfaceVariant,
+                      child: Center(
+                        child: Text(iconEmoji, style: const TextStyle(fontSize: 40)),
+                      ),
+                    ),
                   ),
-                  child: Text(iconEmoji, style: const TextStyle(fontSize: 20)),
-                ),
-                if (isEnabled)
-                  const Icon(
-                    Icons.check_circle,
-                    size: 20,
-                    color: AppTheme.primary,
+                  // Dark gradient overlay for text readability
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withAlpha(0),
+                          Colors.black.withAlpha(100),
+                        ],
+                        stops: const [0.5, 1.0],
+                      ),
+                    ),
                   ),
-              ],
-            ),
-            Text(
-              name,
-              style: GoogleFonts.manrope(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: isEnabled ? AppTheme.primary : AppTheme.onSurface,
+                  // Content overlay
+                  Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            if (isEnabled)
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withAlpha(200),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.check_circle,
+                                  size: 20,
+                                  color: AppTheme.primary,
+                                ),
+                              ),
+                          ],
+                        ),
+                        Text(
+                          name,
+                          style: GoogleFonts.manrope(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                            shadows: [
+                              Shadow(
+                                color: Colors.black.withAlpha(150),
+                                blurRadius: 4,
+                                offset: const Offset(0, 1),
+                              ),
+                            ],
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: isEnabled
+                              ? AppTheme.primary.withAlpha(30)
+                              : AppTheme.surfaceVariant,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Center(
+                          child: Text(iconEmoji, style: const TextStyle(fontSize: 20)),
+                        ),
+                      ),
+                      if (isEnabled)
+                        const Icon(
+                          Icons.check_circle,
+                          size: 20,
+                          color: AppTheme.primary,
+                        ),
+                    ],
+                  ),
+                  Text(
+                    name,
+                    style: GoogleFonts.manrope(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: isEnabled ? AppTheme.primary : AppTheme.onSurface,
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -1777,18 +1844,47 @@ class _ServicePricingCard extends StatelessWidget {
         service['name'] ??
         '';
     final String iconEmoji = service['icon_emoji'] ?? '🔧';
+    final String? iconImageUrl = service['icon_image_url'] as String?;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppTheme.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.outlineVariant),
       ),
+      clipBehavior: Clip.antiAlias,
       child: Row(
         children: [
-          Text(iconEmoji, style: const TextStyle(fontSize: 24)),
+          iconImageUrl != null && iconImageUrl.isNotEmpty
+              ? ClipRRect(
+                  borderRadius: const BorderRadius.horizontal(left: Radius.circular(16)),
+                  child: Image.network(
+                    iconImageUrl,
+                    width: 80,
+                    height: 80,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      width: 80,
+                      height: 80,
+                      color: AppTheme.surfaceVariant,
+                      child: Center(
+                        child: Text(iconEmoji, style: const TextStyle(fontSize: 32)),
+                      ),
+                    ),
+                  ),
+                )
+              : Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceVariant,
+                    borderRadius: const BorderRadius.horizontal(left: Radius.circular(16)),
+                  ),
+                  child: Center(
+                    child: Text(iconEmoji, style: const TextStyle(fontSize: 32)),
+                  ),
+                ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -1860,7 +1956,6 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
   @override
   void initState() {
     super.initState();
-    debugPrint('PricingEditorSheet initState - initial price: ${widget.pricing.basePrice}');
     _basePriceCtrl = TextEditingController(
       text: widget.pricing.basePrice > 0
           ? widget.pricing.basePrice.toStringAsFixed(0)
@@ -1873,7 +1968,6 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
 
   @override
   void dispose() {
-    debugPrint('PricingEditorSheet dispose - final price: ${_basePriceCtrl.text}');
     _basePriceCtrl.dispose();
     super.dispose();
   }
@@ -1929,11 +2023,6 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: () {
-                  debugPrint('=== PRICING EDITOR SAVE CLICKED ===');
-                  debugPrint('Base price: ${_basePriceCtrl.text}');
-                  debugPrint('Distance rules: ${_distanceRules.length}');
-                  debugPrint('Time surcharges: ${_timeSurcharges.length}');
-                  debugPrint('Supported vehicles: ${_supportedVehicles.length}');
                   widget.onSave(
                     _ServicePricing(
                       basePrice: double.tryParse(_basePriceCtrl.text) ?? 0,
@@ -2039,18 +2128,13 @@ class _PricingEditorSheetState extends State<_PricingEditorSheet> {
 
             return InkWell(
               onTap: () {
-                debugPrint('Vehicle tapped: ${opt['id']}');
-                debugPrint('Current price: ${_basePriceCtrl.text}');
                 setState(() {
                   if (isSelected) {
                     _supportedVehicles.remove(opt['id']);
-                    debugPrint('Removed vehicle ${opt['id']}');
                   } else {
                     _supportedVehicles.add(opt['id'] as String);
-                    debugPrint('Added vehicle ${opt['id']}');
                   }
                 });
-                debugPrint('After setState - price: ${_basePriceCtrl.text}');
               },
               borderRadius: BorderRadius.circular(10),
               child: AnimatedContainer(

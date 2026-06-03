@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../../theme/app_theme.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
 import '../../routes/app_routes.dart';
-import '../../services/localization_service.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
 
 // Conditional imports for file download
 import 'post_payment_download_stub.dart'

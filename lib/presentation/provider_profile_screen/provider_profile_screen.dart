@@ -4,12 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
-import '../../theme/app_theme.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
 import '../../routes/app_routes.dart';
-import '../../widgets/language_selector_widget.dart';
-import '../../widgets/service_area_map_widget.dart';
-import '../../services/localization_service.dart';
-import '../../services/supabase_service.dart';
+import 'package:roadrescue_shared/widgets/language_selector_widget.dart';
+import 'package:roadrescue_shared/widgets/service_area_map_widget.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
+import 'package:roadrescue_shared/services/supabase_service.dart';
 import './widgets/provider_plan_purchase_dialog.dart';
 
 class ProviderProfileScreen extends StatefulWidget {
@@ -25,6 +25,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
   bool _isAvailable = true;
   bool _isLoadingGeo = true;
   bool _isUploadingAvatar = false;
+  bool _isDeletingAccount = false;
 
   // Subscription
   Map<String, dynamic>? _activeSubscription;
@@ -91,7 +92,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading subscription: $e');
       if (mounted) setState(() => _isLoadingSubscription = false);
     }
   }
@@ -137,7 +137,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading provider stats: $e');
       if (mounted) setState(() => _isLoadingStats = false);
     }
   }
@@ -156,7 +155,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading notification preference: $e');
     }
   }
 
@@ -172,7 +170,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
         setState(() => _notificationsEnabled = enabled);
       }
     } catch (e) {
-      debugPrint('Error saving notification preference: $e');
     }
   }
 
@@ -254,7 +251,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading distance unit: $e');
     }
   }
 
@@ -265,7 +261,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
     try {
       final profile = await SupabaseService.instance.getUserProfile(userId);
       if (profile != null && mounted) {
-        debugPrint('Loading full profile - name: ${profile['full_name']}, address: ${profile['address']}');
         setState(() {
           _nameController.text = profile['full_name']?.toString() ?? '';
           _emailController.text = profile['email']?.toString() ?? '';
@@ -280,7 +275,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading profile: $e');
     }
   }
 
@@ -294,7 +288,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading states: $e');
       if (mounted) setState(() => _isLoadingGeo = false);
     }
   }
@@ -308,7 +301,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading cities: $e');
     }
   }
 
@@ -319,8 +311,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
     try {
       final profile = await SupabaseService.instance.getUserProfile(userId);
       if (profile != null && mounted) {
-        debugPrint('Loading geo settings - state: ${profile['selected_state_id']}, city: ${profile['selected_city_id']}');
-        
         setState(() {
           _selectedStateId = profile['selected_state_id'] as String?;
           _selectedCityId = profile['selected_city_id'] as String?;
@@ -331,7 +321,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading provider geo settings: $e');
     }
   }
 
@@ -397,9 +386,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
       // Build query: street, city, state, zip, Mexico
       final fullAddress = '$street, $city, $state, $zip, Mexico';
       final query = Uri.encodeComponent(fullAddress);
-      
-      debugPrint('Geocoding: $fullAddress');
-      
       final url = Uri.parse(
         'https://nominatim.openstreetmap.org/search?q=$query&format=json&limit=1',
       );
@@ -451,7 +437,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
         }
       }
     } catch (e) {
-      debugPrint('Geocoding error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -540,7 +525,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
         );
       }
     } catch (e) {
-      debugPrint('Avatar upload error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -576,12 +560,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
       final address = _addressController.text.trim();
       
       final zip = _zipController.text.trim();
-      
-      debugPrint('DEBUG: _addressController.text = "${_addressController.text}"');
-      debugPrint('DEBUG: trimmed address = "$address"');
-      debugPrint('DEBUG: zip = "$zip"');
-      debugPrint('Saving profile - address: $address, zip: $zip, lat: $lat, lng: $lng');
-      
       // Save geo zone settings
       await SupabaseService.instance.updateProviderGeoZone(
         providerId: userId,
@@ -602,9 +580,6 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
         'is_available': _isAvailable,
         'updated_at': DateTime.now().toIso8601String(),
       });
-      
-      debugPrint('Profile saved successfully');
-      
       await Future.delayed(const Duration(milliseconds: 500));
       
       if (!mounted) return;
@@ -740,25 +715,36 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            _buildAvailabilityBanner(l),
-            const SizedBox(height: 16),
-            _buildSubscriptionCard(l),
-            const SizedBox(height: 16),
-            _buildProfileHeader(l),
-            const SizedBox(height: 16),
-            _buildBusinessCard(l),
-            const SizedBox(height: 16),
-            _buildPersonalInfoCard(l),
-            const SizedBox(height: 16),
-            _buildStatsCard(l),
-            const SizedBox(height: 16),
-            _buildActionsCard(l),
-          ],
-        ),
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                _buildAvailabilityBanner(l),
+                const SizedBox(height: 16),
+                _buildSubscriptionCard(l),
+                const SizedBox(height: 16),
+                _buildProfileHeader(l),
+                const SizedBox(height: 16),
+                _buildBusinessCard(l),
+                const SizedBox(height: 16),
+                _buildPersonalInfoCard(l),
+                const SizedBox(height: 16),
+                _buildStatsCard(l),
+                const SizedBox(height: 16),
+                _buildActionsCard(l),
+              ],
+            ),
+          ),
+          if (_isDeletingAccount)
+            Container(
+              color: AppTheme.background.withAlpha(180),
+              child: const Center(
+                child: CircularProgressIndicator(),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1597,6 +1583,117 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
     );
   }
 
+  Future<void> _showDeleteAccountDialog(LocalizationService l) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: Row(
+          children: [
+            const Icon(Icons.delete_forever, color: AppTheme.error, size: 28),
+            const SizedBox(width: 12),
+            Text(
+              l.t('delete_account'),
+              style: GoogleFonts.manrope(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.onSurface,
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          l.t('delete_account_message'),
+          style: GoogleFonts.manrope(
+            fontSize: 14,
+            color: AppTheme.onSurfaceVariant,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(
+              l.t('cancel'),
+              style: GoogleFonts.manrope(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.error,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: Text(
+              l.t('delete'),
+              style: GoogleFonts.manrope(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      setState(() => _isDeletingAccount = true);
+      try {
+        final userId = SupabaseService.instance.currentUser?.id;
+        if (userId == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(l.t('error'))),
+            );
+          }
+          return;
+        }
+
+        final result = await SupabaseService.instance.deleteUserAccount(userId);
+
+        if (!mounted) return;
+
+        if (result['success'] == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(l.t('account_deleted'))),
+          );
+          await SupabaseService.instance.signOut();
+          if (mounted) {
+            Navigator.pushNamedAndRemoveUntil(
+              context,
+              AppRoutes.signUpLoginScreen,
+              (r) => false,
+            );
+          }
+        } else {
+          final errorMsg = result['error']?.toString() ?? l.t('error');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${l.t('error')}: $errorMsg')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${l.t('error')}: $e')),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isDeletingAccount = false);
+        }
+      }
+    }
+  }
+
   Widget _buildActionsCard(LocalizationService l) {
     return Container(
       decoration: BoxDecoration(
@@ -1659,14 +1756,26 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
           ),
           const Divider(height: 1, color: AppTheme.outlineVariant),
           _buildActionRow(
+            Icons.delete_forever,
+            l.t('delete_account'),
+            AppTheme.error,
+            () => _showDeleteAccountDialog(l),
+          ),
+          const Divider(height: 1, color: AppTheme.outlineVariant),
+          _buildActionRow(
             Icons.logout_rounded,
             l.t('sign_out'),
             AppTheme.error,
-            () => Navigator.pushNamedAndRemoveUntil(
-              context,
-              AppRoutes.signUpLoginScreen,
-              (r) => false,
-            ),
+            () async {
+              await SupabaseService.instance.signOut();
+              if (mounted) {
+                Navigator.pushNamedAndRemoveUntil(
+                  context,
+                  AppRoutes.signUpLoginScreen,
+                  (r) => false,
+                );
+              }
+            },
           ),
         ],
       ),

@@ -23,6 +23,7 @@ DROP TABLE IF EXISTS public.push_tokens CASCADE;
 DROP TABLE IF EXISTS public.user_profiles CASCADE;
 DROP TABLE IF EXISTS public.geo_zones CASCADE;
 DROP TABLE IF EXISTS public.cities CASCADE;
+DROP TABLE IF EXISTS public.states CASCADE;
 DROP TABLE IF EXISTS public.app_settings CASCADE;
 DROP TABLE IF EXISTS public.app_content CASCADE;
 DROP TABLE IF EXISTS public.reviews CASCADE;
@@ -49,10 +50,19 @@ CREATE TYPE public.payment_status AS ENUM ('pending', 'succeeded', 'failed', 're
 -- ─── 2. CORE TABLES ──────────────────────────────────────────
 
 -- Geographic Data
+CREATE TABLE public.states (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    country TEXT DEFAULT 'Mexico',
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
 CREATE TABLE public.cities (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     state TEXT NOT NULL,
+    state_id UUID REFERENCES public.states(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -74,10 +84,15 @@ CREATE TABLE public.user_profiles (
     role public.user_role NOT NULL DEFAULT 'customer'::public.user_role,
     business_name TEXT DEFAULT '',
     avatar_url TEXT DEFAULT '',
+    address TEXT,
+    address_lat FLOAT,
+    address_lng FLOAT,
+    selected_state_id UUID REFERENCES public.states(id) ON DELETE SET NULL,
+    selected_city_id UUID REFERENCES public.cities(id) ON DELETE SET NULL,
+    selected_geo_zone_id UUID REFERENCES public.geo_zones(id) ON DELETE SET NULL,
     service_range_miles INTEGER DEFAULT 25,
     is_available BOOLEAN DEFAULT true,
     preferred_language TEXT DEFAULT 'en',
-    selected_geo_zone_id UUID REFERENCES public.geo_zones(id) ON DELETE SET NULL,
     accepted_payment_methods TEXT DEFAULT 'cash,online',
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
@@ -133,8 +148,13 @@ CREATE TABLE public.job_requests (
     provider_id UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
     service_type TEXT NOT NULL,
     service_icon TEXT DEFAULT 'build',
+    service_icon_image_url TEXT,
     vehicle_size TEXT,
     address TEXT NOT NULL,
+    customer_lat FLOAT,
+    customer_lng FLOAT,
+    customer_city_id UUID REFERENCES public.cities(id) ON DELETE SET NULL,
+    customer_state_id UUID REFERENCES public.states(id) ON DELETE SET NULL,
     description TEXT,
     urgency public.urgency_level DEFAULT 'standard',
     job_status public.job_status DEFAULT 'pending',

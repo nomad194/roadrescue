@@ -2,9 +2,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../theme/app_theme.dart';
-import '../../services/localization_service.dart';
-import '../../services/supabase_service.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
+import 'package:roadrescue_shared/services/supabase_service.dart';
 import '../../routes/app_routes.dart';
 
 class ProviderDocumentsScreen extends StatefulWidget {

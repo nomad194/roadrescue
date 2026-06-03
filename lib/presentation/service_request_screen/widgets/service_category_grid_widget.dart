@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../../../theme/app_theme.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
 
 class ServiceCategoryGridWidget extends StatelessWidget {
   final List<Map<String, dynamic>> categories;
@@ -37,6 +37,7 @@ class ServiceCategoryGridWidget extends StatelessWidget {
           id: id,
           label: cat['label'] ?? '',
           iconEmoji: cat['icon'] ?? '🔧',
+          iconImageUrl: cat['iconImageUrl'] as String?,
           isSelected: isSelected,
           onTap: () => onSelected(id),
           animationDelay: Duration(milliseconds: 60 * index),
@@ -50,6 +51,7 @@ class _CategoryTile extends StatefulWidget {
   final String id;
   final String label;
   final String iconEmoji;
+  final String? iconImageUrl;
   final bool isSelected;
   final VoidCallback onTap;
   final Duration animationDelay;
@@ -58,6 +60,7 @@ class _CategoryTile extends StatefulWidget {
     required this.id,
     required this.label,
     required this.iconEmoji,
+    this.iconImageUrl,
     required this.isSelected,
     required this.onTap,
     required this.animationDelay,
@@ -121,7 +124,9 @@ class _CategoryTileState extends State<_CategoryTile>
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             curve: Curves.easeOutCubic,
-            padding: const EdgeInsets.all(14),
+            padding: widget.iconImageUrl != null && widget.iconImageUrl!.isNotEmpty
+                ? EdgeInsets.zero
+                : const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: widget.isSelected ? AppTheme.primary : AppTheme.surface,
               borderRadius: BorderRadius.circular(14),
@@ -147,52 +152,128 @@ class _CategoryTileState extends State<_CategoryTile>
                       ),
                     ],
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: widget.isSelected
-                            ? Colors.white.withAlpha(51)
-                            : AppTheme.primaryContainer,
-                        borderRadius: BorderRadius.circular(9),
+            child: widget.iconImageUrl != null && widget.iconImageUrl!.isNotEmpty
+                ? _buildImageTile()
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: widget.isSelected
+                                  ? Colors.white.withAlpha(51)
+                                  : AppTheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(9),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              widget.iconEmoji,
+                              style: const TextStyle(fontSize: 20),
+                            ),
+                          ),
+                          const Spacer(),
+                          if (widget.isSelected)
+                            const Icon(
+                              Icons.check_circle_rounded,
+                              size: 18,
+                              color: Colors.white,
+                            ),
+                        ],
                       ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        widget.iconEmoji,
-                        style: const TextStyle(fontSize: 20),
+                      const SizedBox(height: 8),
+                      Text(
+                        widget.label,
+                        style: GoogleFonts.manrope(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: widget.isSelected
+                              ? Colors.white
+                              : AppTheme.onSurface,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                    const Spacer(),
-                    if (widget.isSelected)
-                      const Icon(
-                        Icons.check_circle_rounded,
-                        size: 18,
-                        color: Colors.white,
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  widget.label,
-                  style: GoogleFonts.manrope(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: widget.isSelected
-                        ? Colors.white
-                        : AppTheme.onSurface,
+                    ],
                   ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildImageTile() {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.network(
+            widget.iconImageUrl!,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => Center(
+              child: Text(widget.iconEmoji, style: const TextStyle(fontSize: 40)),
+            ),
+          ),
+          // Bottom gradient for text readability
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              height: 56,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withAlpha(0),
+                    Colors.black.withAlpha(179),
+                  ],
+                ),
+              ),
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+              alignment: Alignment.bottomLeft,
+              child: Text(
+                widget.label,
+                style: GoogleFonts.manrope(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+          // Selection checkmark
+          if (widget.isSelected)
+            Positioned(
+              top: 10,
+              right: 10,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: AppTheme.primary,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withAlpha(40),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                padding: const EdgeInsets.all(4),
+                child: const Icon(
+                  Icons.check,
+                  size: 14,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

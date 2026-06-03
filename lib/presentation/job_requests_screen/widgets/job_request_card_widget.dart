@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../../theme/app_theme.dart';
-import '../../../widgets/custom_image_widget.dart';
-import '../../../services/supabase_service.dart';
-import '../../../services/localization_service.dart';
-import '../../../services/notification_service.dart';
-import '../../../utils/map_utils.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
+import 'package:roadrescue_shared/widgets/custom_image_widget.dart';
+import 'package:roadrescue_shared/services/supabase_service.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
+import 'package:roadrescue_shared/services/notification_service.dart';
+import 'package:roadrescue_shared/services/theme_service.dart';
+import 'package:roadrescue_shared/utils/map_utils.dart';
 
 class JobRequest {
   final String id;
@@ -90,23 +91,26 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
     } catch (_) {}
   }
 
-  IconData _iconFromString(String name) {
-    switch (name) {
-      case 'local_shipping':
-        return Icons.local_shipping_rounded;
-      case 'tire_repair':
-        return Icons.tire_repair_rounded;
-      case 'lock_open':
-        return Icons.lock_open_rounded;
-      case 'local_gas_station':
-        return Icons.local_gas_station_rounded;
-      case 'bolt':
-        return Icons.bolt_rounded;
-      case 'battery_alert':
-        return Icons.battery_alert_rounded;
-      default:
-        return Icons.build_rounded;
+  Widget _buildServiceIcon(String serviceIcon, Color color) {
+    if (serviceIcon.startsWith('http')) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: Image.network(
+          serviceIcon,
+          width: 13,
+          height: 13,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => Text(
+            '🔧',
+            style: TextStyle(fontSize: 13, color: color),
+          ),
+        ),
+      );
     }
+    return Text(
+      serviceIcon.isNotEmpty ? serviceIcon : '🔧',
+      style: TextStyle(fontSize: 13, color: color),
+    );
   }
 
   Color _serviceColor(String type) {
@@ -289,15 +293,16 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
         widget.job.status == 'awaiting_reconfirmation';
     final isEnRoute = widget.job.status == 'en_route';
     final l = LocalizationService.instance;
+    final ts = ThemeService.instance;
 
     return Container(
       decoration: BoxDecoration(
-        color: AppTheme.surface,
+        color: ts.providerMainCardBg,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: isUrgent
-              ? AppTheme.error.withAlpha(77)
-              : AppTheme.outlineVariant,
+              ? ts.providerMainUrgentBorder
+              : ts.providerMainCardBorder,
           width: isUrgent ? 1.5 : 1,
         ),
         boxShadow: [
@@ -341,11 +346,7 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            _iconFromString(widget.job.serviceIcon),
-                            size: 13,
-                            color: serviceColor,
-                          ),
+                          _buildServiceIcon(widget.job.serviceIcon, serviceColor),
                           const SizedBox(width: 4),
                           Text(
                             widget.job.serviceType,
@@ -574,14 +575,16 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
                       _ActionButton(
                         label: l.t('send_quote'),
                         icon: Icons.send_rounded,
-                        color: Theme.of(context).primaryColor,
+                        color: ts.providerMainActionBtnBg,
+                        textColor: ts.providerMainActionBtnText,
                         onTap: widget.onSendQuote,
                       )
                     else if (isConfirmed)
                       _ActionButton(
                         label: _markingEnRoute ? l.t('loading') : l.t('on_my_way'),
                         icon: _markingEnRoute ? Icons.hourglass_empty_rounded : Icons.directions_car_rounded,
-                        color: const Color(0xFF0891B2),
+                        color: ts.providerMainSecondaryActionBtnBg,
+                        textColor: Colors.white,
                         onTap: _markingEnRoute ? () {} : _onMyWay,
                       )
                     else if (isEnRoute)
@@ -589,6 +592,7 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
                         label: l.t('navigate'),
                         icon: Icons.navigation_rounded,
                         color: AppTheme.success,
+                        textColor: Colors.white,
                         onTap: _openNavigation,
                       ),
 
@@ -598,6 +602,7 @@ class _JobRequestCardWidgetState extends State<JobRequestCardWidget> {
                         label: _isSubmittingResponse ? '...' : 'Done',
                         icon: Icons.check_circle_outline_rounded,
                         color: AppTheme.success,
+                        textColor: Colors.white,
                         onTap: _isSubmittingResponse ? () {} : () => _submitCompletionResponse(true),
                       ),
                   ],
@@ -811,12 +816,14 @@ class _ActionButton extends StatelessWidget {
   final String label;
   final IconData icon;
   final Color color;
+  final Color textColor;
   final VoidCallback onTap;
 
   const _ActionButton({
     required this.label,
     required this.icon,
     required this.color,
+    required this.textColor,
     required this.onTap,
   });
 
@@ -824,14 +831,14 @@ class _ActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return ElevatedButton.icon(
       onPressed: onTap,
-      icon: Icon(icon, size: 14),
+      icon: Icon(icon, size: 14, color: textColor),
       label: Text(
         label,
-        style: GoogleFonts.manrope(fontSize: 11, fontWeight: FontWeight.w700),
+        style: GoogleFonts.manrope(fontSize: 11, fontWeight: FontWeight.w700, color: textColor),
       ),
       style: ElevatedButton.styleFrom(
         backgroundColor: color,
-        foregroundColor: Colors.white,
+        foregroundColor: textColor,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         minimumSize: const Size(0, 36),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),

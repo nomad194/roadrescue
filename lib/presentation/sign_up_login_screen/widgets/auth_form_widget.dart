@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../../../theme/app_theme.dart';
-import '../../../services/localization_service.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
+import 'package:roadrescue_shared/services/theme_service.dart';
+
+import '../../../routes/app_routes.dart';
 
 class AuthFormWidget extends StatefulWidget {
   final bool isLogin;
@@ -27,19 +30,34 @@ class AuthFormWidget extends StatefulWidget {
   State<AuthFormWidget> createState() => _AuthFormWidgetState();
 }
 
-class _AuthFormWidgetState extends State<AuthFormWidget> {
+class _AuthFormWidgetState extends State<AuthFormWidget>
+    with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
   bool _rememberMe = false;
+  late AnimationController _animController;
+
+  @override
+  void initState() {
+    super.initState();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+  }
 
   @override
   void dispose() {
+    _animController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _confirmPasswordController.dispose();
     _nameController.dispose();
     _phoneController.dispose();
     super.dispose();
@@ -110,7 +128,7 @@ class _AuthFormWidgetState extends State<AuthFormWidget> {
             },
           ),
           const SizedBox(height: 16),
-          if (!widget.isLogin && widget.selectedRole != 'admin') ...[
+          if (!widget.isLogin) ...[
             _buildLabel(l.t('phone')),
             const SizedBox(height: 6),
             TextFormField(
@@ -154,9 +172,47 @@ class _AuthFormWidgetState extends State<AuthFormWidget> {
             validator: (v) {
               if (v == null || v.isEmpty) return l.t('password_required');
               if (v.length < 8) return l.t('password_too_short');
+              final hasLetter = RegExp(r'[a-zA-Z]').hasMatch(v);
+              final hasNumber = RegExp(r'[0-9]').hasMatch(v);
+              if (!hasLetter || !hasNumber) {
+                return l.t('password_must_contain_letter_and_number');
+              }
               return null;
             },
           ),
+          if (!widget.isLogin) ...[
+            const SizedBox(height: 12),
+            _buildLabel(l.t('confirm_password')),
+            const SizedBox(height: 6),
+            TextFormField(
+              controller: _confirmPasswordController,
+              obscureText: _obscureConfirmPassword,
+              decoration: InputDecoration(
+                hintText: '••••••••',
+                prefixIcon: const Icon(Icons.lock_outline_rounded, size: 20),
+                prefixIconColor: AppTheme.muted,
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _obscureConfirmPassword
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                    size: 20,
+                    color: AppTheme.muted,
+                  ),
+                  onPressed: () => setState(
+                    () => _obscureConfirmPassword = !_obscureConfirmPassword,
+                  ),
+                ),
+              ),
+              validator: (v) {
+                if (v == null || v.isEmpty) return l.t('password_required');
+                if (v != _passwordController.text) {
+                  return l.t('passwords_do_not_match');
+                }
+                return null;
+              },
+            ),
+          ],
           const SizedBox(height: 12),
           if (widget.isLogin) ...[
             Row(
@@ -184,7 +240,10 @@ class _AuthFormWidgetState extends State<AuthFormWidget> {
                 ),
                 const Spacer(),
                 GestureDetector(
-                  onTap: () {},
+                  onTap: () => Navigator.pushNamed(
+                    context,
+                    AppRoutes.forgotPasswordScreen,
+                  ),
                   child: Text(
                     l.t('forgot_password'),
                     style: GoogleFonts.manrope(
@@ -252,40 +311,87 @@ class _AuthFormWidgetState extends State<AuthFormWidget> {
     );
   }
 
+  List<BoxShadow> _resolveShadow(String shadow, Color glowColor) {
+    if (shadow == 'none') return [];
+    final alpha = switch (shadow) {
+      'light' => 40,
+      'heavy' => 120,
+      _ => 80,
+    };
+    final blur = switch (shadow) {
+      'light' => 8.0,
+      'heavy' => 24.0,
+      _ => 16.0,
+    };
+    final spread = switch (shadow) {
+      'light' => 0.0,
+      'heavy' => 2.0,
+      _ => 1.0,
+    };
+    return [BoxShadow(color: glowColor.withAlpha(alpha), blurRadius: blur, spreadRadius: spread)];
+  }
+
   Widget _buildSubmitButton(LocalizationService l) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
+    final themeService = ThemeService.instance;
+    final bgColor = themeService.getMainButtonBgColorFor(role: widget.selectedRole, isLogin: widget.isLogin);
+    final textColor = themeService.getMainButtonTextColorFor(role: widget.selectedRole, isLogin: widget.isLogin);
+    final glowColor = themeService.getMainButtonGlowColorFor(role: widget.selectedRole, isLogin: widget.isLogin);
+    final borderRadius = themeService.getMainButtonBorderRadiusFor(role: widget.selectedRole, isLogin: widget.isLogin);
+    final shadow = themeService.getMainButtonShadowFor(role: widget.selectedRole, isLogin: widget.isLogin);
+    final animation = themeService.getMainButtonAnimationFor(role: widget.selectedRole, isLogin: widget.isLogin);
+
+    Widget button = ElevatedButton(
+      onPressed: widget.isLoading ? null : _handleSubmit,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: bgColor,
+        foregroundColor: textColor,
+        disabledBackgroundColor: bgColor.withAlpha(100),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(borderRadius)),
+        elevation: 0,
+        shadowColor: Colors.transparent,
+      ),
+      child: widget.isLoading
+          ? SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2.5, color: textColor),
+            )
+          : Text(
+              widget.isLogin ? l.t('sign_in') : l.t('create_account'),
+              style: GoogleFonts.manrope(fontSize: 15, fontWeight: FontWeight.w700, color: textColor),
+            ),
+    );
+
+    button = Container(
       width: double.infinity,
       height: 52,
-      child: ElevatedButton(
-        onPressed: widget.isLoading ? null : _handleSubmit,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppTheme.primary,
-          foregroundColor: Colors.white,
-          disabledBackgroundColor: AppTheme.primary.withAlpha(100),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          elevation: 0,
-        ),
-        child: widget.isLoading
-            ? const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  color: Colors.white,
-                ),
-              )
-            : Text(
-                widget.isLogin ? l.t('sign_in') : l.t('create_account'),
-                style: GoogleFonts.manrope(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                ),
-              ),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(borderRadius),
+        boxShadow: _resolveShadow(shadow, glowColor ?? bgColor),
       ),
+      child: button,
     );
+
+    if (animation == 'pulse') {
+      button = AnimatedBuilder(
+        animation: _animController,
+        builder: (context, child) {
+          final scale = 1.0 + (_animController.value * 0.02);
+          return Transform.scale(scale: scale, child: child);
+        },
+        child: button,
+      );
+    } else if (animation == 'fade') {
+      button = AnimatedBuilder(
+        animation: _animController,
+        builder: (context, child) {
+          final opacity = 0.9 + (_animController.value * 0.1);
+          return Opacity(opacity: opacity, child: child);
+        },
+        child: button,
+      );
+    }
+
+    return button;
   }
 }

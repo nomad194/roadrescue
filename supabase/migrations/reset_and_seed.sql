@@ -1,6 +1,8 @@
 -- ============================================================
 -- RESET AND FRESH MIGRATION
--- WARNING: This drops all existing data and recreates schema
+-- WARNING: This drops all existing data and recreates schema.
+-- NEVER run this against a production database.
+-- This is for local development / CI reset only.
 -- ============================================================
 
 -- Drop existing tables (reverse order of dependencies)

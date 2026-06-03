@@ -5,18 +5,22 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../routes/app_routes.dart';
-import '../../services/supabase_service.dart';
-import '../../services/localization_service.dart';
-import '../../services/mfa_service.dart';
-import '../../theme/app_theme.dart';
+import 'package:roadrescue_shared/services/auth_social_service.dart';
+import 'package:roadrescue_shared/services/supabase_service.dart';
+import 'package:roadrescue_shared/services/localization_service.dart';
+import 'package:roadrescue_shared/services/mfa_service.dart';
+import 'package:roadrescue_shared/services/theme_service.dart';
+import 'package:roadrescue_shared/theme/app_theme.dart';
 import './widgets/auth_form_widget.dart';
 import './widgets/auth_header_widget.dart';
 import './widgets/demo_credentials_widget.dart';
-import './widgets/role_toggle_widget.dart';
+import './widgets/expandable_email_signup_widget.dart';
 import './widgets/social_login_widget.dart';
 
 class SignUpLoginScreen extends StatefulWidget {
-  const SignUpLoginScreen({super.key});
+  final String? fixedRole;
+
+  const SignUpLoginScreen({super.key, this.fixedRole});
 
   @override
   State<SignUpLoginScreen> createState() => _SignUpLoginScreenState();
@@ -29,7 +33,6 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
   bool _isLoading = false;
   String? _errorMessage;
   bool _showDemoCredentials = false;
-  bool _showRoleSwitcher = true;
 
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
@@ -38,6 +41,9 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
   @override
   void initState() {
     super.initState();
+    if (widget.fixedRole != null) {
+      _selectedRole = widget.fixedRole!;
+    }
     _fadeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 350),
@@ -65,11 +71,9 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
 
   Future<void> _loadAppSettings() async {
     final demo = await SupabaseService.instance.getAppSetting('show_demo_credentials');
-    final switcher = await SupabaseService.instance.getAppSetting('show_role_switcher');
     if (mounted) {
       setState(() {
         _showDemoCredentials = demo == 'true';
-        _showRoleSwitcher = switcher != 'false';
       });
     }
   }
@@ -90,16 +94,12 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
     _fadeController.forward();
   }
 
-  void _onRoleChanged(String role) {
-    setState(() {
-      _selectedRole = role;
-      _errorMessage = null;
-    });
-  }
-
   Future<void> _redirectByRole() async {
     final user = SupabaseService.instance.currentUser;
     if (user == null) return;
+
+    // Ensure profile exists first (critical for new social-auth users)
+    final isNew = await AuthSocialService.instance.handlePostSocialAuth(user);
 
     // Fetch profile to get role and verification status
     final profile = await SupabaseService.instance.getUserProfile(user.id);
@@ -107,22 +107,41 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
         profile?['role'] as String? ??
         user.userMetadata?['role'] as String? ??
         'customer';
+    final phone = profile?['phone'] as String? ?? '';
 
-    // Check phone verification first - all users except admins must verify phone
-    if (role != 'admin') {
-      final isPhoneVerified = await MfaService.instance.isPhoneVerified(user.id);
+    if (!mounted) return;
 
-      if (!mounted) return;
-
-      if (!isPhoneVerified) {
-        // Redirect to phone verification screen first
+    // New social-auth users (or users with missing phone) go to completion screens
+    if (isNew || phone.isEmpty) {
+      if (role == 'provider') {
         Navigator.pushNamedAndRemoveUntil(
           context,
-          AppRoutes.phoneVerificationScreen,
+          AppRoutes.completeProviderProfileScreen,
           (r) => false,
         );
-        return;
+      } else {
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          AppRoutes.completeCustomerProfileScreen,
+          (r) => false,
+        );
       }
+      return;
+    }
+
+    // Check phone verification first
+    final isPhoneVerified = await MfaService.instance.isPhoneVerified(user.id);
+
+    if (!mounted) return;
+
+    if (!isPhoneVerified) {
+      // Redirect to phone verification screen first
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        AppRoutes.phoneVerificationScreen,
+        (r) => false,
+      );
+      return;
     }
 
     // Phone is verified, proceed to role-based redirect
@@ -132,12 +151,6 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
       Navigator.pushNamedAndRemoveUntil(
         context,
         isVerified ? AppRoutes.jobRequestsScreen : AppRoutes.providerDocumentsScreen,
-        (r) => false,
-      );
-    } else if (role == 'admin') {
-      Navigator.pushNamedAndRemoveUntil(
-        context,
-        AppRoutes.adminDashboardScreen,
         (r) => false,
       );
     } else {
@@ -175,7 +188,7 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
       await _redirectByRole();
     } on AuthException catch (e) {
       if (mounted) {
-        setState(() => _errorMessage = e.message);
+        setState(() => _errorMessage = _translateAuthError(e.message));
       }
     } catch (e) {
       if (mounted) {
@@ -188,16 +201,58 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
     }
   }
 
+  String _translateAuthError(String message) {
+    final l = LocalizationService.instance;
+    // Map common Supabase auth errors to translation keys
+    final lowerMessage = message.toLowerCase();
+    if (lowerMessage.contains('invalid login credentials')) {
+      return l.t('invalid_credentials');
+    }
+    if (lowerMessage.contains('email not confirmed')) {
+      return l.t('email_not_confirmed');
+    }
+    if (lowerMessage.contains('user already registered')) {
+      return l.t('user_already_exists');
+    }
+    if (lowerMessage.contains('password')) {
+      return l.t('password_requirements');
+    }
+    // Return original if no translation found
+    return message;
+  }
+
   bool get _isTablet => MediaQuery.of(context).size.width >= 600;
 
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
+    final themeService = ThemeService.instance;
+    final role = widget.fixedRole ?? _selectedRole;
+
+    final bgColor = themeService.getBgColorFor(role: role, isLogin: _isLogin);
+    final bgImageUrl = themeService.getBgImageUrlFor(role: role, isLogin: _isLogin);
 
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: SafeArea(
-        child: _isTablet ? _buildTabletLayout(size) : _buildPhoneLayout(size),
+      backgroundColor: bgColor ?? Theme.of(context).scaffoldBackgroundColor,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Background layer fills entire screen
+          if (bgImageUrl.isNotEmpty)
+            Container(
+              decoration: BoxDecoration(
+                image: DecorationImage(
+                  image: NetworkImage(bgImageUrl),
+                  fit: BoxFit.cover,
+                  opacity: 0.15,
+                ),
+              ),
+            ),
+          // Content layer with SafeArea
+          SafeArea(
+            child: _isTablet ? _buildTabletLayout(size) : _buildPhoneLayout(size),
+          ),
+        ],
       ),
     );
   }
@@ -207,7 +262,7 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
       physics: const ClampingScrollPhysics(),
       child: Column(
         children: [
-          AuthHeaderWidget(isLogin: _isLogin),
+          AuthHeaderWidget(isLogin: _isLogin, role: _selectedRole),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: FadeTransition(
@@ -216,26 +271,107 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 24),
-                  if (_showRoleSwitcher)
-                    RoleToggleWidget(
-                      selectedRole: _selectedRole,
-                      onRoleChanged: _onRoleChanged,
-                    ),
-                  const SizedBox(height: 20),
                   if (_errorMessage != null) ...[
                     _buildErrorBanner(_errorMessage!),
                     const SizedBox(height: 12),
                   ],
-                  AuthFormWidget(
-                    isLogin: _isLogin,
-                    isLoading: _isLoading,
-                    selectedRole: _selectedRole,
-                    onSubmit: _onSubmit,
-                  ),
+                  if (_isLogin)
+                    AuthFormWidget(
+                      isLogin: _isLogin,
+                      isLoading: _isLoading,
+                      selectedRole: _selectedRole,
+                      onSubmit: _onSubmit,
+                    )
+                  else
+                    ExpandableEmailSignupWidget(
+                      isLoading: _isLoading,
+                      selectedRole: _selectedRole,
+                      onSubmit: _onSubmit,
+                    ),
                   const SizedBox(height: 16),
                   _buildToggleModeRow(),
                   const SizedBox(height: 20),
-                  SocialLoginWidget(selectedRole: _selectedRole),
+                  SocialLoginWidget(
+                    selectedRole: _selectedRole,
+                    isSignUp: !_isLogin,
+                  ),
+                  if (widget.fixedRole == null) ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.center,
+                      child: Material(
+                        elevation: 6,
+                        borderRadius: BorderRadius.circular(12),
+                        shadowColor: Colors.black.withAlpha(100),
+                        child: SizedBox(
+                          height: 36,
+                          child: OutlinedButton.icon(
+                            onPressed: () => Navigator.pushNamed(
+                              context,
+                              AppRoutes.providerLoginScreen,
+                            ),
+                            icon: const Icon(
+                              Icons.build_circle_rounded,
+                              size: 16,
+                              color: AppTheme.primary,
+                            ),
+                            label: Text(
+                              LocalizationService.instance.t('provider_login'),
+                              style: GoogleFonts.manrope(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.primary,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: AppTheme.primary),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (widget.fixedRole == 'provider') ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Material(
+                        elevation: 6,
+                        borderRadius: BorderRadius.circular(12),
+                        shadowColor: Colors.black.withAlpha(100),
+                        child: SizedBox(
+                          height: 36,
+                          child: OutlinedButton.icon(
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: const Icon(
+                              Icons.directions_car_rounded,
+                              size: 16,
+                              color: AppTheme.primary,
+                            ),
+                            label: Text(
+                              LocalizationService.instance.t('driver_login'),
+                              style: GoogleFonts.manrope(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.primary,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: AppTheme.primary),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                   if (_showDemoCredentials) ...[
                     const SizedBox(height: 24),
                     DemoCredentialsWidget(selectedRole: _selectedRole),
@@ -270,7 +406,7 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
             ),
             child: Column(
               children: [
-                AuthHeaderWidget(isLogin: _isLogin),
+                AuthHeaderWidget(isLogin: _isLogin, role: _selectedRole),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 32),
                   child: FadeTransition(
@@ -279,26 +415,107 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 24),
-                        if (_showRoleSwitcher)
-                          RoleToggleWidget(
-                            selectedRole: _selectedRole,
-                            onRoleChanged: _onRoleChanged,
-                          ),
-                        const SizedBox(height: 20),
                         if (_errorMessage != null) ...[
                           _buildErrorBanner(_errorMessage!),
                           const SizedBox(height: 12),
                         ],
-                        AuthFormWidget(
-                          isLogin: _isLogin,
-                          isLoading: _isLoading,
-                          selectedRole: _selectedRole,
-                          onSubmit: _onSubmit,
-                        ),
+                        if (_isLogin)
+                          AuthFormWidget(
+                            isLogin: _isLogin,
+                            isLoading: _isLoading,
+                            selectedRole: _selectedRole,
+                            onSubmit: _onSubmit,
+                          )
+                        else
+                          ExpandableEmailSignupWidget(
+                            isLoading: _isLoading,
+                            selectedRole: _selectedRole,
+                            onSubmit: _onSubmit,
+                          ),
                         const SizedBox(height: 16),
                         _buildToggleModeRow(),
                         const SizedBox(height: 20),
-                        const SocialLoginWidget(),
+                        SocialLoginWidget(
+                          selectedRole: _selectedRole,
+                          isSignUp: !_isLogin,
+                        ),
+                        if (widget.fixedRole == null) ...[
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.center,
+                            child: Material(
+                              elevation: 6,
+                              borderRadius: BorderRadius.circular(12),
+                              shadowColor: Colors.black.withAlpha(100),
+                              child: SizedBox(
+                                height: 36,
+                                child: OutlinedButton.icon(
+                                  onPressed: () => Navigator.pushNamed(
+                                    context,
+                                    AppRoutes.providerLoginScreen,
+                                  ),
+                                  icon: const Icon(
+                                    Icons.build_circle_rounded,
+                                    size: 16,
+                                    color: AppTheme.primary,
+                                  ),
+                                  label: Text(
+                                    LocalizationService.instance.t('provider_login'),
+                                    style: GoogleFonts.manrope(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppTheme.primary,
+                                    ),
+                                  ),
+                                  style: OutlinedButton.styleFrom(
+                                    side: const BorderSide(color: AppTheme.primary),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (widget.fixedRole == 'provider') ...[
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: Material(
+                              elevation: 6,
+                              borderRadius: BorderRadius.circular(12),
+                              shadowColor: Colors.black.withAlpha(100),
+                              child: SizedBox(
+                                height: 36,
+                                child: OutlinedButton.icon(
+                                  onPressed: () => Navigator.of(context).pop(),
+                                  icon: const Icon(
+                                    Icons.directions_car_rounded,
+                                    size: 16,
+                                    color: AppTheme.primary,
+                                  ),
+                                  label: Text(
+                                    LocalizationService.instance.t('driver_login'),
+                                    style: GoogleFonts.manrope(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppTheme.primary,
+                                    ),
+                                  ),
+                                  style: OutlinedButton.styleFrom(
+                                    side: const BorderSide(color: AppTheme.primary),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                         if (_showDemoCredentials) ...[
                           const SizedBox(height: 24),
                           DemoCredentialsWidget(selectedRole: _selectedRole),
