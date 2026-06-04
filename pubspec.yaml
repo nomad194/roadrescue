@@ -42,7 +42,7 @@ dependencies:
   # Note: image_picker_android will need updates from Flutter team for full built-in Kotlin support
   flutter_colorpicker: ^1.1.0
   roadrescue_shared:
-    path: ../shared
+    path: shared
 
 dev_dependencies:
   flutter_test:    # CRITICAL: Required for Flutter project testing - DO NOT REMOVE
