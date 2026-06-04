@@ -189,12 +189,6 @@ class _MyAppState extends State<MyApp> {
         NotificationService.instance.stopListening();
       }
     });
-
-    // Initial check
-    final user = SupabaseService.instance.currentUser;
-    if (user != null) {
-      NotificationService.instance.startListening(user.id);
-    }
   }
 
   @override

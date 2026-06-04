@@ -58,13 +58,31 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
     // If already signed in, redirect immediately
     final user = SupabaseService.instance.currentUser;
     if (user != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _redirectByRole());
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        try {
+          await _redirectByRole();
+        } on PostgrestException catch (e) {
+          if (e.code == '401' || e.message.toLowerCase().contains('jwt expired')) {
+            await Supabase.instance.client.auth.signOut();
+          }
+        } catch (_) {
+          // Stay on login screen for other errors
+        }
+      });
     }
 
     // Listen for auth state changes (handles OAuth browser redirect callback)
-    _authSubscription = SupabaseService.instance.authStateChanges.listen((data) {
+    _authSubscription = SupabaseService.instance.authStateChanges.listen((data) async {
       if (data.event == AuthChangeEvent.signedIn && mounted) {
-        _redirectByRole();
+        try {
+          await _redirectByRole();
+        } on PostgrestException catch (e) {
+          if (e.code == '401' || e.message.toLowerCase().contains('jwt expired')) {
+            await Supabase.instance.client.auth.signOut();
+          }
+        } catch (_) {
+          // Stay on login screen for other errors
+        }
       }
     });
   }
