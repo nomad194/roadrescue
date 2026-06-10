@@ -402,7 +402,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           keyboardType: TextInputType.emailAddress,
           autocorrect: false,
           decoration: InputDecoration(
-            hintText: 'driver@example.com',
+            hintText: l.t('email_example'),
             prefixIcon: const Icon(Icons.email_outlined),
             filled: true,
             fillColor: AppTheme.surfaceVariant,
@@ -553,7 +553,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           controller: _passwordController,
           obscureText: true,
           decoration: InputDecoration(
-            hintText: '••••••••',
+            hintText: l.t('password_hint'),
             prefixIcon: const Icon(Icons.lock_outline_rounded),
             filled: true,
             fillColor: AppTheme.surfaceVariant,
@@ -574,7 +574,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           controller: _confirmPasswordController,
           obscureText: true,
           decoration: InputDecoration(
-            hintText: '••••••••',
+            hintText: l.t('password_hint'),
             prefixIcon: const Icon(Icons.lock_outline_rounded),
             filled: true,
             fillColor: AppTheme.surfaceVariant,

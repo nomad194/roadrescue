@@ -5,6 +5,8 @@ import '../../../routes/app_routes.dart';
 import 'package:roadrescue_shared/services/localization_service.dart';
 import 'package:roadrescue_shared/services/notification_service.dart';
 import 'package:roadrescue_shared/services/supabase_service.dart';
+import 'package:roadrescue_shared/widgets/review_dialog_widget.dart';
+import 'package:roadrescue_shared/widgets/job_chat_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import './active_request_banner_widget.dart';
 
@@ -30,17 +32,11 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
   bool _acceptingQuote = false;
   bool _showPostPaymentForCash = false;
   bool _showPostPaymentForOnline = true;
-  bool _whatsappEnabled = true;
 
   bool _providerAcceptsCash = true;
   bool _providerAcceptsOnline = true;
 
-  bool get _isConfirmed =>
-      widget.request.status == HelpRequestStatus.accepted ||
-      widget.request.status == HelpRequestStatus.enRoute ||
-      widget.request.status == HelpRequestStatus.awaitingConfirmation ||
-      widget.request.status == HelpRequestStatus.awaitingReconfirmation ||
-      widget.request.status == HelpRequestStatus.disputed;
+  bool get _isConfirmed => widget.request.status.isChatEnabled;
 
   bool _isSubmittingResponse = false;
 
@@ -59,7 +55,6 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
           .inFilter('setting_key', [
             'post_payment_screen_cash',
             'post_payment_screen_online',
-            'whatsapp_chat_enabled',
           ]);
       for (final row in response as List) {
         if (!mounted) return;
@@ -71,8 +66,6 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
           setState(
             () => _showPostPaymentForOnline = row['setting_value'] == 'true',
           );
-        } else if (row['setting_key'] == 'whatsapp_chat_enabled') {
-          setState(() => _whatsappEnabled = row['setting_value'] == 'true');
         }
       }
     } catch (_) {}
@@ -209,28 +202,19 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
     );
   }
 
-  void _openWhatsApp() {
+  void _openChat() {
     final l = LocalizationService.instance;
-    final phone =
-        widget.request.providerPhone?.replaceAll(RegExp(r'[^\d+]'), '') ?? '';
-    final message = Uri.encodeComponent(
-      l.t('whatsapp_message_template')
-          .replaceAll('{name}', widget.request.providerName ?? 'there')
-          .replaceAll('{id}', widget.request.id.substring(0, 8))
-          .replaceAll('{service}', widget.request.serviceType)
-          .replaceAll('{address}', widget.request.address),
-    );
-    final url = 'https://wa.me/$phone?text=$message';
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          l.t('opening_whatsapp').replaceAll('{name}', widget.request.providerName ?? 'your provider'),
-          style: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600),
+    final nav = Navigator.of(context);
+    nav.pop();
+    nav.push(
+      MaterialPageRoute(
+        builder: (_) => JobChatScreen(
+          jobRequestId: widget.request.id,
+          currentUserId: SupabaseService.instance.currentUser?.id ?? '',
+          currentUserRole: 'customer',
+          otherPartyName: widget.request.providerName ?? l.t('your_provider'),
+          jobStatus: widget.request.status.name,
         ),
-        backgroundColor: const Color(0xFF25D366),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),
       ),
     );
   }
@@ -240,7 +224,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
     final l = LocalizationService.instance;
     return Container(
       decoration: const BoxDecoration(
-        color: AppTheme.surface,
+        color: Colors.transparent,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Column(
@@ -250,7 +234,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: AppTheme.outline,
+              color: Colors.white.withAlpha(80),
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -261,7 +245,45 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
+                      // Category image
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: widget.request.serviceIconImageUrl != null &&
+                                widget.request.serviceIconImageUrl!.isNotEmpty
+                            ? Image.network(
+                                widget.request.serviceIconImageUrl!,
+                                width: 64,
+                                height: 64,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => Container(
+                                  width: 64,
+                                  height: 64,
+                                  color: Colors.white.withAlpha(20),
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    widget.request.serviceIcon,
+                                    style: const TextStyle(fontSize: 32),
+                                  ),
+                                ),
+                              )
+                            : Container(
+                                width: 64,
+                                height: 64,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withAlpha(20),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.white.withAlpha(40)),
+                                ),
+                                alignment: Alignment.center,
+                                child: Text(
+                                  widget.request.serviceIcon,
+                                  style: const TextStyle(fontSize: 32),
+                                ),
+                              ),
+                      ),
+                      const SizedBox(width: 14),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -271,7 +293,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                               style: GoogleFonts.manrope(
                                 fontSize: 17,
                                 fontWeight: FontWeight.w800,
-                                color: AppTheme.onSurface,
+                                color: Colors.white,
                               ),
                             ),
                             const SizedBox(height: 2),
@@ -279,7 +301,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                               widget.request.serviceType,
                               style: GoogleFonts.manrope(
                                 fontSize: 13,
-                                color: AppTheme.muted,
+                                color: Colors.white.withAlpha(180),
                               ),
                             ),
                           ],
@@ -297,11 +319,40 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                   const SizedBox(height: 8),
                   _buildInfoRow(
                     Icons.description_outlined,
-                    AppTheme.primary,
+                    AppTheme.serviceRequestAccent,
                     widget.request.description?.isNotEmpty == true
                         ? widget.request.description
                         : l.t('no_additional_details'),
                   ),
+                  // Vehicle details
+                  if (widget.request.vehicleMake != null || widget.request.vehicleType != null || widget.request.vehicleSize?.isNotEmpty == true) ...[
+                    const SizedBox(height: 8),
+                    _buildInfoRow(
+                      Icons.directions_car_rounded,
+                      AppTheme.serviceRequestAccent,
+                      _formatVehicle(widget.request),
+                    ),
+                  ],
+                  // Gas Service details
+                  if (widget.request.fuelType != null) ...[
+                    const SizedBox(height: 8),
+                    _buildInfoRow(
+                      Icons.local_gas_station_rounded,
+                      AppTheme.serviceRequestAccent,
+                      widget.request.fuelAmount != null
+                          ? '${l.t('fuel_type_${widget.request.fuelType}')} · \$${widget.request.fuelAmount! % 1 == 0 ? widget.request.fuelAmount!.toInt() : widget.request.fuelAmount}'
+                          : l.t('fuel_type_${widget.request.fuelType}'),
+                    ),
+                  ],
+                  // Flat Tire details
+                  if (widget.request.tirePosition != null) ...[
+                    const SizedBox(height: 8),
+                    _buildInfoRow(
+                      Icons.tire_repair_rounded,
+                      AppTheme.warning,
+                      '${l.t('tire_position_${widget.request.tirePosition}')} · ${l.t('tire_action_${widget.request.tireAction}')}',
+                    ),
+                  ],
                   if (_isConfirmed && widget.request.providerName != null) ...[
                     const SizedBox(height: 20),
                     _buildProviderCard(l),
@@ -323,7 +374,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                     style: GoogleFonts.manrope(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
-                      color: AppTheme.onSurface,
+                      color: Colors.white,
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -341,8 +392,8 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                     _buildPaymentMethodSelector(l),
                     const SizedBox(height: 12),
                   ],
-                  if (_isConfirmed && _whatsappEnabled) ...[
-                    _buildWhatsAppButton(l),
+                  if (_isConfirmed) ...[
+                    _buildChatButton(l),
                     const SizedBox(height: 12),
                   ],
 
@@ -378,13 +429,13 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
           style: GoogleFonts.manrope(
             fontSize: 14,
             fontWeight: FontWeight.w700,
-            color: AppTheme.onSurface,
+            color: Colors.white,
           ),
         ),
         const SizedBox(height: 4),
         Text(
           l.t('choose_payment_method_desc'),
-          style: GoogleFonts.manrope(fontSize: 12, color: AppTheme.muted),
+          style: GoogleFonts.manrope(fontSize: 12, color: Colors.white.withAlpha(180)),
         ),
         const SizedBox(height: 12),
         if (_providerAcceptsOnline) ...[
@@ -436,8 +487,8 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                 ),
               ),
               style: OutlinedButton.styleFrom(
-                foregroundColor: AppTheme.success,
-                side: BorderSide(color: AppTheme.success.withAlpha(150)),
+                foregroundColor: AppTheme.serviceRequestAccent,
+                side: BorderSide(color: AppTheme.serviceRequestAccent.withAlpha(150)),
                 minimumSize: const Size(double.infinity, 52),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
@@ -450,12 +501,13 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: AppTheme.warningContainer,
+              color: Colors.white.withAlpha(20),
               borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppTheme.warning.withAlpha(100)),
             ),
             child: Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.warning_amber_rounded,
                   color: AppTheme.warning,
                   size: 18,
@@ -466,7 +518,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                     l.t('no_payment_methods'),
                     style: GoogleFonts.manrope(
                       fontSize: 13,
-                      color: AppTheme.warning,
+                      color: Colors.white,
                     ),
                   ),
                 ),
@@ -645,6 +697,19 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
     );
   }
 
+  String _formatVehicle(ActiveHelpRequest request) {
+    final l = LocalizationService.instance;
+    final parts = <String>[];
+    if (request.vehicleType != null && request.vehicleType!.isNotEmpty) parts.add(l.t('vehicle_size_${request.vehicleType}'));
+    if (request.vehicleMake != null && request.vehicleMake!.isNotEmpty) parts.add(request.vehicleMake!);
+    if (request.vehicleModel != null && request.vehicleModel!.isNotEmpty) parts.add(request.vehicleModel!);
+    if (request.vehicleColor != null && request.vehicleColor!.isNotEmpty) parts.add(l.t(request.vehicleColor!));
+    if (request.vehicleYear != null && request.vehicleYear!.isNotEmpty) parts.add(request.vehicleYear!);
+    if (request.vehiclePlate != null && request.vehiclePlate!.isNotEmpty) parts.add('(${request.vehiclePlate})');
+    if (parts.isEmpty && request.vehicleSize?.isNotEmpty == true) return request.vehicleSize!;
+    return parts.join(' ');
+  }
+
   Widget _buildInfoRow(IconData icon, Color iconColor, String text) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -656,7 +721,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
             text,
             style: GoogleFonts.manrope(
               fontSize: 13,
-              color: AppTheme.onSurfaceVariant,
+              color: Colors.white.withAlpha(200),
               height: 1.4,
             ),
           ),
@@ -669,20 +734,20 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppTheme.primaryContainer,
+        color: Colors.white.withAlpha(20),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.primary.withAlpha(60)),
+        border: Border.all(color: AppTheme.serviceRequestAccent.withAlpha(60)),
       ),
       child: Row(
         children: [
           CircleAvatar(
             radius: 22,
-            backgroundColor: AppTheme.primary.withAlpha(40),
+            backgroundColor: Colors.white.withAlpha(40),
             backgroundImage: widget.request.providerImageUrl != null
                 ? NetworkImage(widget.request.providerImageUrl!)
                 : null,
             child: widget.request.providerImageUrl == null
-                ? Icon(Icons.person_rounded, color: AppTheme.primary, size: 22)
+                ? Icon(Icons.person_rounded, color: AppTheme.serviceRequestAccent, size: 22)
                 : null,
           ),
           const SizedBox(width: 12),
@@ -695,7 +760,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                   style: GoogleFonts.manrope(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: AppTheme.onSurface,
+                    color: Colors.white,
                   ),
                 ),
                 if (widget.request.etaMinutes != null)
@@ -703,7 +768,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
                     l.t('eta_min_step').replaceAll('{eta}', widget.request.etaMinutes.toString()),
                     style: GoogleFonts.manrope(
                       fontSize: 12,
-                      color: AppTheme.primary,
+                      color: AppTheme.serviceRequestAccent,
                     ),
                   ),
               ],
@@ -908,18 +973,19 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
     );
   }
 
-  Widget _buildWhatsAppButton(LocalizationService l) {
+  Widget _buildChatButton(LocalizationService l) {
+    final isReadOnly = widget.request.status.isChatReadOnly;
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton.icon(
-        onPressed: _openWhatsApp,
-        icon: const Icon(Icons.chat_rounded, size: 18),
+        onPressed: _openChat,
+        icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
         label: Text(
-          l.t('chat_with_provider_whatsapp'),
+          isReadOnly ? l.t('view_chat') : l.t('open_chat'),
           style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w700),
         ),
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF25D366),
+          backgroundColor: AppTheme.primary,
           foregroundColor: Colors.white,
           minimumSize: const Size(double.infinity, 50),
           shape: RoundedRectangleBorder(
@@ -1076,7 +1142,7 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
   Future<void> _submitResponse(bool confirmed) async {
     setState(() => _isSubmittingResponse = true);
     try {
-      await SupabaseService.instance.submitCompletionResponse(
+      final newStatus = await SupabaseService.instance.submitCompletionResponse(
         requestId: widget.request.id,
         role: 'customer',
         confirmed: confirmed,
@@ -1084,6 +1150,13 @@ class _HelpRequestDetailSheetState extends State<HelpRequestDetailSheet> {
       
       // Signal parent to reload data immediately
       widget.onRefresh?.call();
+
+      if (mounted && newStatus == 'completed') {
+        ReviewDialogWidget.show(context, widget.request.id, widget.onRefresh ?? () {});
+        // Dismiss this detail sheet so the user doesn't see stale completion UI
+        Navigator.pop(context);
+        return;
+      }
 
       if (mounted) {
         final l = LocalizationService.instance;

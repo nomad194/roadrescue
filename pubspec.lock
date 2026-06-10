@@ -896,7 +896,7 @@ packages:
   roadrescue_shared:
     dependency: "direct main"
     description:
-      path: shared
+      path: "../shared"
       relative: true
     source: path
     version: "1.0.0"

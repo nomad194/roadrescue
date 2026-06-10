@@ -175,8 +175,8 @@ class _CompleteCustomerProfileScreenState
                     TextFormField(
                       controller: _nameController,
                       textCapitalization: TextCapitalization.words,
-                      decoration: const InputDecoration(
-                        hintText: 'e.g. Marcus Johnson',
+                      decoration: InputDecoration(
+                        hintText: l.t('name_hint'),
                         prefixIcon: Icon(
                           Icons.person_outline_rounded,
                           size: 20,
@@ -208,8 +208,8 @@ class _CompleteCustomerProfileScreenState
                     TextFormField(
                       controller: _phoneController,
                       keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(
-                        hintText: '+1 (555) 000-0000',
+                      decoration: InputDecoration(
+                        hintText: l.t('phone_hint'),
                         prefixIcon: Icon(Icons.phone_outlined, size: 20),
                         prefixIconColor: AppTheme.muted,
                       ),

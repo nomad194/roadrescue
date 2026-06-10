@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:roadrescue_shared/theme/app_theme.dart';
 import 'package:roadrescue_shared/services/supabase_service.dart';
 import 'package:roadrescue_shared/services/localization_service.dart';
+import 'package:roadrescue_shared/services/theme_service.dart';
 
 class FaqTosScreen extends StatefulWidget {
   const FaqTosScreen({super.key});
@@ -75,28 +76,22 @@ class _FaqTosScreenState extends State<FaqTosScreen>
   @override
   Widget build(BuildContext context) {
     final l = LocalizationService.instance;
+    final ts = ThemeService.instance;
+    final screenBg = ts.userScreenBgColor.withAlpha((255 * ts.userScreenBgOpacity).round());
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      backgroundColor: screenBg,
       appBar: AppBar(
-        backgroundColor: AppTheme.surface,
+        backgroundColor: screenBg,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back_ios_new,
-            size: 18,
-            color: AppTheme.onSurface,
-          ),
-          onPressed: () => Navigator.pop(context),
-        ),
         title: Text(
-          'Support & Legal',
-          style: GoogleFonts.manrope(fontWeight: FontWeight.w700, fontSize: 18),
+          l.t('support_and_legal'),
+          style: GoogleFonts.manrope(fontWeight: FontWeight.w700, fontSize: 18, color: Colors.white),
         ),
         bottom: TabBar(
           controller: _tabController,
-          labelColor: AppTheme.primary,
-          unselectedLabelColor: AppTheme.muted,
-          indicatorColor: AppTheme.primary,
+          labelColor: AppTheme.serviceRequestAccent,
+          unselectedLabelColor: Colors.white.withAlpha(180),
+          indicatorColor: AppTheme.serviceRequestAccent,
           isScrollable: true,
           tabs: [
             Tab(text: l.t('faq')),
@@ -106,7 +101,7 @@ class _FaqTosScreenState extends State<FaqTosScreen>
         ),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator(color: Colors.white))
           : TabBarView(
               controller: _tabController,
               children: [
@@ -122,8 +117,8 @@ class _FaqTosScreenState extends State<FaqTosScreen>
     if (_faqs.isEmpty) {
       return Center(
         child: Text(
-          'No FAQs found',
-          style: GoogleFonts.manrope(color: AppTheme.muted),
+          l.t('no_faqs'),
+          style: GoogleFonts.manrope(color: Colors.white.withAlpha(180)),
         ),
       );
     }
@@ -135,20 +130,34 @@ class _FaqTosScreenState extends State<FaqTosScreen>
         final q = l.translateContent(Map<String, dynamic>.from(faq['translations_q'] ?? {}), fallbackText: faq['q'] ?? '');
         final a = l.translateContent(Map<String, dynamic>.from(faq['translations_a'] ?? {}), fallbackText: faq['a'] ?? '');
         
-        return ExpansionTile(
-          title: Text(
-            q,
-            style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
+        return Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          decoration: BoxDecoration(
+            color: Colors.white.withAlpha(20),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white.withAlpha(80)),
           ),
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                a,
-                style: GoogleFonts.manrope(fontSize: 14, height: 1.5),
+          child: Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            child: ExpansionTile(
+              iconColor: Colors.white,
+              collapsedIconColor: Colors.white.withAlpha(180),
+              title: Text(
+                q,
+                style: GoogleFonts.manrope(fontWeight: FontWeight.w600, color: Colors.white),
               ),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    a,
+                    style: GoogleFonts.manrope(fontSize: 14, height: 1.5, color: Colors.white.withAlpha(200)),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         );
       },
     );
@@ -157,12 +166,20 @@ class _FaqTosScreenState extends State<FaqTosScreen>
   Widget _buildTosTab(String content) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
-      child: Text(
-        content,
-        style: GoogleFonts.manrope(
-          fontSize: 14,
-          height: 1.6,
-          color: AppTheme.onSurface,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white.withAlpha(20),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withAlpha(80)),
+        ),
+        child: Text(
+          content,
+          style: GoogleFonts.manrope(
+            fontSize: 14,
+            height: 1.6,
+            color: Colors.white.withAlpha(200),
+          ),
         ),
       ),
     );

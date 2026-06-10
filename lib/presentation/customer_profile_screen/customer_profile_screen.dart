@@ -1,14 +1,28 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:roadrescue_shared/theme/app_theme.dart';
+import 'package:roadrescue_shared/services/theme_service.dart';
 import '../../routes/app_routes.dart';
 import 'package:roadrescue_shared/widgets/language_selector_widget.dart';
+import 'widgets/customer_language_dialog.dart';
 import 'package:roadrescue_shared/services/localization_service.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:roadrescue_shared/services/supabase_service.dart';
+import 'package:roadrescue_shared/widgets/themed_alert_dialog.dart';
 
 class CustomerProfileScreen extends StatefulWidget {
-  const CustomerProfileScreen({super.key});
+  final VoidCallback? onNavigateToMyVehicle;
+  final VoidCallback? onNavigateToServiceHistory;
+  final VoidCallback? onNavigateToFAQ;
+  final VoidCallback? onNavigateToSupport;
+
+  const CustomerProfileScreen({
+    super.key,
+    this.onNavigateToMyVehicle,
+    this.onNavigateToServiceHistory,
+    this.onNavigateToFAQ,
+    this.onNavigateToSupport,
+  });
 
   @override
   State<CustomerProfileScreen> createState() => _CustomerProfileScreenState();
@@ -20,6 +34,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
   bool _isLoading = true;
   bool _isUploadingAvatar = false;
   bool _isDeletingAccount = false;
+  bool _notificationsEnabled = true;
 
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
@@ -29,6 +44,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
   String? _avatarUrl;
   int _totalRequests = 0;
   int _completedRequests = 0;
+  String _originalPhone = '';
 
   @override
   void dispose() {
@@ -43,6 +59,105 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
   void initState() {
     super.initState();
     _loadProfile();
+    _loadNotificationPreference();
+  }
+
+  Future<void> _loadNotificationPreference() async {
+    try {
+      final userId = SupabaseService.instance.currentUser?.id;
+      if (userId == null) return;
+      final response = await SupabaseService.instance.client
+          .from('app_settings')
+          .select('setting_value')
+          .eq('setting_key', 'notifications_enabled_$userId')
+          .maybeSingle();
+      if (response != null && mounted) {
+        setState(() {
+          _notificationsEnabled = response['setting_value'] == 'true';
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveNotificationPreference(bool enabled) async {
+    try {
+      final userId = SupabaseService.instance.currentUser?.id;
+      if (userId == null) return;
+      await SupabaseService.instance.client
+          .from('app_settings')
+          .upsert({
+            'setting_key': 'notifications_enabled_$userId',
+            'setting_value': enabled.toString(),
+          });
+      if (mounted) setState(() => _notificationsEnabled = enabled);
+    } catch (_) {}
+  }
+
+  void _showNotificationSettings() {
+    final l = LocalizationService.instance;
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => ThemedAlertDialog(role: 'customer',
+          backgroundColor: Colors.grey[900],
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: Colors.white.withAlpha(80)),
+          ),
+          title: Text(
+            l.t('notifications'),
+            style: GoogleFonts.manrope(fontWeight: FontWeight.w700, color: Colors.white),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    l.t('enable_notifications'),
+                    style: GoogleFonts.manrope(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Switch(
+                    value: _notificationsEnabled,
+                    activeColor: AppTheme.serviceRequestAccent,
+                    onChanged: (value) {
+                      setDialogState(() => _notificationsEnabled = value);
+                      _saveNotificationPreference(value);
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                l.t('receive_notifications_for'),
+                style: GoogleFonts.manrope(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${l.t('notif_quote_acceptances')}\n${l.t('notif_payment_confirmations')}\n${l.t('notif_job_status_updates')}',
+                style: GoogleFonts.manrope(fontSize: 13, color: Colors.white.withAlpha(180)),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(l.t('close'), style: TextStyle(color: AppTheme.serviceRequestAccent)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _loadProfile() async {
@@ -58,6 +173,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
           _emailController.text = profile['email'] as String? ??
               SupabaseService.instance.currentUser?.email ?? '';
           _phoneController.text = profile['phone'] as String? ?? '';
+          _originalPhone = profile['phone'] as String? ?? '';
           _addressController.text = profile['address'] as String? ?? '';
           _avatarUrl = profile['avatar_url'] as String?;
         });
@@ -80,6 +196,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
   Future<void> _pickAndUploadAvatar() async {
     final userId = SupabaseService.instance.currentUser?.id;
     if (userId == null) return;
+    final l = LocalizationService.instance;
 
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
@@ -87,33 +204,36 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 36, height: 4,
-              decoration: BoxDecoration(
-                color: AppTheme.outlineVariant,
-                borderRadius: BorderRadius.circular(2),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.only(bottom: 80),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 36, height: 4,
+                decoration: BoxDecoration(
+                  color: AppTheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined, color: AppTheme.primary),
-              title: Text('Choose from Gallery',
-                  style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w600)),
-              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
-            ),
-            ListTile(
-              leading: const Icon(Icons.camera_alt_outlined, color: AppTheme.primary),
-              title: Text('Take a Photo',
-                  style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w600)),
-              onTap: () => Navigator.pop(ctx, ImageSource.camera),
-            ),
-            const SizedBox(height: 8),
-          ],
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined, color: AppTheme.primary),
+                title: Text(l.t('choose_from_gallery'),
+                    style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w600)),
+                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              ),
+              ListTile(
+                leading: const Icon(Icons.camera_alt_outlined, color: AppTheme.primary),
+                title: Text(l.t('take_photo'),
+                    style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w600)),
+                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
       ),
     );
@@ -172,12 +292,38 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
   Future<void> _saveProfile() async {
     final userId = SupabaseService.instance.currentUser?.id;
     if (userId == null) return;
+    final l = LocalizationService.instance;
+    final newPhone = _phoneController.text.trim();
+
+    // If phone changed, require re-verification
+    if (newPhone != _originalPhone && newPhone.isNotEmpty) {
+      setState(() => _isEditing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            l.t('phone_change_verify'),
+            style: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+          backgroundColor: AppTheme.warning,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+      Navigator.pushNamed(
+        context,
+        AppRoutes.phoneVerificationScreen,
+        arguments: {'phone': newPhone, 'updateProfile': true},
+      ).then((_) {
+        _phoneController.text = _originalPhone;
+        _loadProfile();
+      });
+      return;
+    }
 
     setState(() => _isSaving = true);
     try {
       await SupabaseService.instance.updateProfile(userId, {
-        'full_name': _nameController.text.trim(),
-        'phone': _phoneController.text.trim(),
         'address': _addressController.text.trim(),
         'updated_at': DateTime.now().toIso8601String(),
       });
@@ -190,7 +336,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            LocalizationService.instance.t('profile_updated'),
+            l.t('profile_updated'),
             style: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600),
           ),
           backgroundColor: AppTheme.success,
@@ -219,21 +365,24 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final l = LocalizationService.instance;
+    final ts = ThemeService.instance;
+    final screenBg = ts.userScreenBgColor.withAlpha((255 * ts.userScreenBgOpacity).round());
+
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      backgroundColor: screenBg,
       appBar: AppBar(
-        backgroundColor: AppTheme.surface,
+        backgroundColor: screenBg,
         elevation: 0,
-        scrolledUnderElevation: 1,
-        shadowColor: Colors.black.withAlpha(20),
+        scrolledUnderElevation: 0,
         title: Text(
           l.t('my_profile'),
           style: GoogleFonts.manrope(
             fontSize: 18,
             fontWeight: FontWeight.w700,
-            color: AppTheme.onSurface,
+            color: Colors.white,
           ),
         ),
+        iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
@@ -247,15 +396,15 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                           l.t('cancel'),
                           style: GoogleFonts.manrope(
                             fontSize: 13,
-                            color: AppTheme.onSurfaceVariant,
+                            color: Colors.white.withAlpha(180),
                           ),
                         ),
                       ),
                       ElevatedButton(
                         onPressed: _isSaving ? null : _saveProfile,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.primary,
-                          foregroundColor: Colors.white,
+                          backgroundColor: AppTheme.serviceRequestAccent,
+                          foregroundColor: Colors.black,
                           minimumSize: const Size(70, 36),
                           padding: const EdgeInsets.symmetric(horizontal: 14),
                           shape: RoundedRectangleBorder(
@@ -268,7 +417,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                                 height: 16,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  color: Colors.white,
+                                  color: Colors.black,
                                 ),
                               )
                             : Text(
@@ -283,13 +432,13 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                   )
                 : IconButton(
                     onPressed: _toggleEdit,
-                    icon: const Icon(
+                    icon: Icon(
                       Icons.edit_outlined,
                       size: 20,
-                      color: AppTheme.primary,
+                      color: AppTheme.serviceRequestAccent,
                     ),
                     style: IconButton.styleFrom(
-                      backgroundColor: AppTheme.primaryContainer,
+                      backgroundColor: Colors.white.withAlpha(40),
                       minimumSize: const Size(36, 36),
                     ),
                   ),
@@ -297,15 +446,13 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator(color: Colors.white))
           : Stack(
               children: [
                 SingleChildScrollView(
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
-                      _buildProfileHeader(l),
-                      const SizedBox(height: 20),
                       _buildInfoCard(l),
                       const SizedBox(height: 16),
                       _buildStatsCard(l),
@@ -317,9 +464,9 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                 ),
                 if (_isDeletingAccount)
                   Container(
-                    color: AppTheme.background.withAlpha(180),
+                    color: screenBg.withAlpha(180),
                     child: const Center(
-                      child: CircularProgressIndicator(),
+                      child: CircularProgressIndicator(color: Colors.white),
                     ),
                   ),
               ],
@@ -331,79 +478,25 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: AppTheme.surface,
+        color: Colors.white.withAlpha(20),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.outlineVariant),
+        border: Border.all(color: Colors.white.withAlpha(80)),
       ),
       child: Column(
         children: [
-          Stack(
-            children: [
-              CircleAvatar(
-                radius: 44,
-                backgroundColor: AppTheme.primaryContainer,
-                backgroundImage: _avatarUrl != null && _avatarUrl!.isNotEmpty
-                    ? NetworkImage(_avatarUrl!) as ImageProvider
-                    : null,
-                onBackgroundImageError: _avatarUrl != null && _avatarUrl!.isNotEmpty
-                    ? (_, _) {}
-                    : null,
-                child: _isUploadingAvatar
-                    ? const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary),
-                      )
-                    : _avatarUrl == null || _avatarUrl!.isEmpty
-                        ? Text(
-                            _nameController.text.isNotEmpty
-                                ? _nameController.text[0].toUpperCase()
-                                : 'U',
-                            style: GoogleFonts.manrope(
-                              fontSize: 32,
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.primary,
-                            ),
-                          )
-                        : null,
-              ),
-              Positioned(
-                bottom: 0,
-                right: 0,
-                child: GestureDetector(
-                  onTap: _pickAndUploadAvatar,
-                  child: Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      color: AppTheme.primary,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2),
-                    ),
-                    child: const Icon(
-                      Icons.camera_alt,
-                      size: 14,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
           Text(
             _nameController.text,
             style: GoogleFonts.manrope(
               fontSize: 20,
               fontWeight: FontWeight.w700,
-              color: AppTheme.onSurface,
+              color: Colors.white,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: AppTheme.primaryContainer,
+              color: AppTheme.serviceRequestAccent.withAlpha(40),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
@@ -411,7 +504,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
               style: GoogleFonts.manrope(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: AppTheme.primary,
+                color: AppTheme.serviceRequestAccent,
               ),
             ),
           ),
@@ -424,9 +517,9 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppTheme.surface,
+        color: Colors.white.withAlpha(20),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.outlineVariant),
+        border: Border.all(color: Colors.white.withAlpha(80)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -436,42 +529,114 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
             style: GoogleFonts.manrope(
               fontSize: 15,
               fontWeight: FontWeight.w700,
-              color: AppTheme.onSurface,
+              color: Colors.white,
             ),
           ),
           const SizedBox(height: 16),
-          _buildField(
-            Icons.person_outline,
-            l.t('full_name'),
-            _nameController,
-            l: l,
-            enabled: _isEditing,
-          ),
-          _buildField(
-            Icons.email_outlined,
-            l.t('email'),
-            _emailController,
-            l: l,
-            enabled: _isEditing,
-          ),
-          _buildField(
-            Icons.phone_outlined,
-            l.t('phone'),
-            _phoneController,
-            l: l,
-            enabled: _isEditing,
-            keyboardType: TextInputType.phone,
-          ),
-          _buildField(
-            Icons.location_on_outlined,
-            l.t('address'),
-            _addressController,
-            l: l,
-            enabled: _isEditing,
-            isLast: true,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Left side - information fields
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildField(
+                      Icons.person_outline,
+                      l.t('full_name'),
+                      _nameController,
+                      l: l,
+                      enabled: false,
+                    ),
+                    _buildField(
+                      Icons.email_outlined,
+                      l.t('email'),
+                      _emailController,
+                      l: l,
+                      enabled: _isEditing,
+                    ),
+                    _buildField(
+                      Icons.phone_outlined,
+                      l.t('phone'),
+                      _phoneController,
+                      l: l,
+                      enabled: _isEditing,
+                      keyboardType: TextInputType.phone,
+                    ),
+                    _buildField(
+                      Icons.location_on_outlined,
+                      l.t('address'),
+                      _addressController,
+                      l: l,
+                      enabled: _isEditing,
+                      isLast: true,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              // Right side - avatar
+              _buildAvatarWidget(),
+            ],
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildAvatarWidget() {
+    return Stack(
+      children: [
+        CircleAvatar(
+          radius: 44,
+          backgroundColor: Colors.white.withAlpha(40),
+          backgroundImage: _avatarUrl != null && _avatarUrl!.isNotEmpty
+              ? NetworkImage(_avatarUrl!) as ImageProvider
+              : null,
+          onBackgroundImageError: _avatarUrl != null && _avatarUrl!.isNotEmpty
+              ? (_, _) {}
+              : null,
+          child: _isUploadingAvatar
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : _avatarUrl == null || _avatarUrl!.isEmpty
+                  ? Text(
+                      _nameController.text.isNotEmpty
+                          ? _nameController.text[0].toUpperCase()
+                          : 'U',
+                      style: GoogleFonts.manrope(
+                        fontSize: 32,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.serviceRequestAccent,
+                      ),
+                    )
+                  : null,
+        ),
+        Positioned(
+          bottom: 0,
+          right: 0,
+          child: GestureDetector(
+            onTap: _pickAndUploadAvatar,
+            child: Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: AppTheme.serviceRequestAccent,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.black, width: 2),
+              ),
+              child: const Icon(
+                Icons.camera_alt,
+                size: 14,
+                color: Colors.black,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -494,7 +659,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
             style: GoogleFonts.manrope(
               fontSize: 11,
               fontWeight: FontWeight.w600,
-              color: AppTheme.onSurfaceVariant,
+              color: Colors.white.withAlpha(180),
             ),
           ),
           const SizedBox(height: 6),
@@ -503,21 +668,21 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                   controller: controller,
                   keyboardType: keyboardType,
                   decoration: InputDecoration(
-                    prefixIcon: Icon(icon, size: 18, color: AppTheme.muted),
+                    prefixIcon: Icon(icon, size: 18, color: Colors.white.withAlpha(180)),
                     filled: true,
-                    fillColor: AppTheme.surfaceVariant,
+                    fillColor: Colors.white.withAlpha(20),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: AppTheme.outline),
+                      borderSide: BorderSide(color: Colors.white.withAlpha(80)),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: AppTheme.outline),
+                      borderSide: BorderSide(color: Colors.white.withAlpha(80)),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(
-                        color: AppTheme.primary,
+                      borderSide: BorderSide(
+                        color: AppTheme.serviceRequestAccent,
                         width: 2,
                       ),
                     ),
@@ -528,12 +693,12 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                   ),
                   style: GoogleFonts.manrope(
                     fontSize: 14,
-                    color: AppTheme.onSurface,
+                    color: Colors.white,
                   ),
                 )
               : Row(
                   children: [
-                    Icon(icon, size: 18, color: AppTheme.muted),
+                    Icon(icon, size: 18, color: Colors.white.withAlpha(180)),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
@@ -543,8 +708,8 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                         style: GoogleFonts.manrope(
                           fontSize: 14,
                           color: controller.text.isEmpty
-                              ? AppTheme.muted
-                              : AppTheme.onSurface,
+                              ? Colors.white.withAlpha(120)
+                              : Colors.white,
                         ),
                       ),
                     ),
@@ -559,9 +724,9 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppTheme.surface,
+        color: Colors.white.withAlpha(20),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.outlineVariant),
+        border: Border.all(color: Colors.white.withAlpha(80)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -571,7 +736,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
             style: GoogleFonts.manrope(
               fontSize: 15,
               fontWeight: FontWeight.w700,
-              color: AppTheme.onSurface,
+              color: Colors.white,
             ),
           ),
           const SizedBox(height: 14),
@@ -580,15 +745,15 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
               _buildStatItem(
                 '$_totalRequests',
                 l.t('total_requests'),
-                AppTheme.primary,
-                AppTheme.primaryContainer,
+                AppTheme.serviceRequestAccent,
+                Colors.white.withAlpha(20),
               ),
               const SizedBox(width: 10),
               _buildStatItem(
                 '$_completedRequests',
                 l.t('done'),
-                AppTheme.success,
-                AppTheme.successContainer,
+                AppTheme.serviceRequestAccent,
+                Colors.white.withAlpha(20),
               ),
             ],
           ),
@@ -609,6 +774,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
         decoration: BoxDecoration(
           color: bgColor,
           borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withAlpha(60)),
         ),
         child: Column(
           children: [
@@ -635,11 +801,13 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
   Future<void> _showDeleteAccountDialog(LocalizationService l) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.surface,
+      builder: (ctx) => ThemedAlertDialog(role: 'customer',
+        backgroundColor: Colors.white.withAlpha(20),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Colors.white.withAlpha(80)),
         ),
+        insetPadding: const EdgeInsets.fromLTRB(40, 40, 40, 90),
         title: Row(
           children: [
             const Icon(Icons.delete_forever, color: AppTheme.error, size: 28),
@@ -649,7 +817,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
               style: GoogleFonts.manrope(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
-                color: AppTheme.onSurface,
+                color: Colors.white,
               ),
             ),
           ],
@@ -658,7 +826,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
           l.t('delete_account_message'),
           style: GoogleFonts.manrope(
             fontSize: 14,
-            color: AppTheme.onSurfaceVariant,
+            color: Colors.white.withAlpha(180),
           ),
         ),
         actions: [
@@ -669,7 +837,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
               style: GoogleFonts.manrope(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: AppTheme.onSurfaceVariant,
+                color: Colors.white.withAlpha(180),
               ),
             ),
           ),
@@ -716,6 +884,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
             SnackBar(content: Text(l.t('account_deleted'))),
           );
           await SupabaseService.instance.signOut();
+          await ThemeService.instance.initialize();
           if (mounted) {
             Navigator.pushNamedAndRemoveUntil(
               context,
@@ -746,47 +915,61 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
   Widget _buildActionsCard(LocalizationService l) {
     return Container(
       decoration: BoxDecoration(
-        color: AppTheme.surface,
+        color: Colors.white.withAlpha(20),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.outlineVariant),
+        border: Border.all(color: Colors.white.withAlpha(80)),
       ),
       child: Column(
         children: [
           _buildActionRow(
+            Icons.directions_car_outlined,
+            l.t('my_vehicle'),
+            AppTheme.serviceRequestAccent,
+            widget.onNavigateToMyVehicle ?? () {},
+          ),
+          Divider(height: 1, color: Colors.white.withAlpha(40)),
+          _buildActionRow(
             Icons.history_outlined,
             l.t('service_history'),
-            AppTheme.primary,
-            () => Navigator.pushNamed(context, AppRoutes.serviceHistoryScreen),
+            AppTheme.serviceRequestAccent,
+            widget.onNavigateToServiceHistory ?? () {},
           ),
-          const Divider(height: 1, color: AppTheme.outlineVariant),
+          Divider(height: 1, color: Colors.white.withAlpha(40)),
           _buildActionRow(
             Icons.help_outline_rounded,
             l.t('faq'),
-            AppTheme.primary,
-            () => Navigator.pushNamed(context, AppRoutes.faqTosScreen),
+            AppTheme.serviceRequestAccent,
+            widget.onNavigateToFAQ ?? () {},
           ),
-          const Divider(height: 1, color: AppTheme.outlineVariant),
+          Divider(height: 1, color: Colors.white.withAlpha(40)),
+          _buildActionRow(
+            Icons.support_agent_outlined,
+            l.t('support'),
+            AppTheme.serviceRequestAccent,
+            widget.onNavigateToSupport ?? () => Navigator.pushNamed(context, AppRoutes.supportTicketsScreen),
+          ),
+          Divider(height: 1, color: Colors.white.withAlpha(40)),
           _buildActionRow(
             Icons.language,
             l.t('language'),
-            AppTheme.primary,
-            () => LanguageSelectorWidget.showLanguageDialog(context),
+            AppTheme.serviceRequestAccent,
+            () => CustomerLanguageDialog.show(context),
           ),
-          const Divider(height: 1, color: AppTheme.outlineVariant),
+          Divider(height: 1, color: Colors.white.withAlpha(40)),
           _buildActionRow(
             Icons.notifications_outlined,
             l.t('notifications'),
-            AppTheme.primary,
-            () {},
+            AppTheme.serviceRequestAccent,
+            () => _showNotificationSettings(),
           ),
-          const Divider(height: 1, color: AppTheme.outlineVariant),
+          Divider(height: 1, color: Colors.white.withAlpha(40)),
           _buildActionRow(
             Icons.delete_forever,
             l.t('delete_account'),
             AppTheme.error,
             () => _showDeleteAccountDialog(l),
           ),
-          const Divider(height: 1, color: AppTheme.outlineVariant),
+          Divider(height: 1, color: Colors.white.withAlpha(40)),
           _buildActionRow(
             Icons.logout_rounded,
             l.t('sign_out'),
@@ -794,23 +977,27 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
             () async {
               final confirmed = await showDialog<bool>(
                 context: context,
-                builder: (ctx) => AlertDialog(
+                builder: (ctx) => ThemedAlertDialog(role: 'customer',
+                  backgroundColor: const Color(0xFF1A1A2E),
+                  surfaceTintColor: Colors.transparent,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
+                    side: BorderSide(color: Colors.white.withAlpha(80)),
                   ),
+                  insetPadding: const EdgeInsets.fromLTRB(40, 40, 40, 90),
                   title: Text(
                     l.t('sign_out'),
                     style: GoogleFonts.manrope(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
-                      color: AppTheme.onSurface,
+                      color: Colors.white,
                     ),
                   ),
                   content: Text(
-                    'Are you sure you want to sign out?',
+                    l.t('sign_out_confirmation'),
                     style: GoogleFonts.manrope(
                       fontSize: 14,
-                      color: AppTheme.onSurfaceVariant,
+                      color: Colors.white.withAlpha(180),
                     ),
                   ),
                   actions: [
@@ -821,7 +1008,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                         style: GoogleFonts.manrope(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: AppTheme.onSurfaceVariant,
+                          color: Colors.white.withAlpha(180),
                         ),
                       ),
                     ),
@@ -847,6 +1034,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
               );
               if (confirmed == true && mounted) {
                 await SupabaseService.instance.signOut();
+                await ThemeService.instance.initialize();
                 if (mounted) {
                   Navigator.pushNamedAndRemoveUntil(
                     context,
@@ -885,11 +1073,11 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                   fontWeight: FontWeight.w500,
                   color: color == AppTheme.error
                       ? AppTheme.error
-                      : AppTheme.onSurface,
+                      : Colors.white,
                 ),
               ),
             ),
-            Icon(Icons.chevron_right, size: 18, color: AppTheme.muted),
+            Icon(Icons.chevron_right, size: 18, color: Colors.white.withAlpha(180)),
           ],
         ),
       ),

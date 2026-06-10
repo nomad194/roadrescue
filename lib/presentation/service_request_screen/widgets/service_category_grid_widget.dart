@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:roadrescue_shared/services/theme_service.dart';
 import 'package:roadrescue_shared/theme/app_theme.dart';
 
 class ServiceCategoryGridWidget extends StatelessWidget {
@@ -40,7 +41,7 @@ class ServiceCategoryGridWidget extends StatelessWidget {
           iconImageUrl: cat['iconImageUrl'] as String?,
           isSelected: isSelected,
           onTap: () => onSelected(id),
-          animationDelay: Duration(milliseconds: 60 * index),
+          animationDelay: Duration(milliseconds: 30 * index),
         );
       },
     );
@@ -103,104 +104,132 @@ class _CategoryTileState extends State<_CategoryTile>
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _entranceController,
-      builder: (context, child) {
-        return Transform.translate(
-          offset: Offset(0, _slideAnimation.value),
-          child: Opacity(opacity: _fadeAnimation.value, child: child),
-        );
-      },
-      child: GestureDetector(
-        onTapDown: (_) => setState(() => _scale = 0.96),
-        onTapUp: (_) {
-          setState(() => _scale = 1.0);
-          widget.onTap();
-        },
-        onTapCancel: () => setState(() => _scale = 1.0),
-        child: AnimatedScale(
-          scale: _scale,
-          duration: const Duration(milliseconds: 120),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOutCubic,
-            padding: widget.iconImageUrl != null && widget.iconImageUrl!.isNotEmpty
-                ? EdgeInsets.zero
-                : const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: widget.isSelected ? AppTheme.primary : AppTheme.surface,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: widget.isSelected
-                    ? AppTheme.primary
-                    : AppTheme.outlineVariant,
-                width: widget.isSelected ? 2 : 1,
-              ),
-              boxShadow: widget.isSelected
-                  ? [
-                      BoxShadow(
-                        color: AppTheme.primary.withAlpha(64),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ]
-                  : [
-                      BoxShadow(
-                        color: Colors.black.withAlpha(10),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-            ),
-            child: widget.iconImageUrl != null && widget.iconImageUrl!.isNotEmpty
-                ? _buildImageTile()
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 36,
-                            height: 36,
-                            decoration: BoxDecoration(
-                              color: widget.isSelected
-                                  ? Colors.white.withAlpha(51)
-                                  : AppTheme.primaryContainer,
-                              borderRadius: BorderRadius.circular(9),
-                            ),
-                            alignment: Alignment.center,
-                            child: Text(
-                              widget.iconEmoji,
-                              style: const TextStyle(fontSize: 20),
-                            ),
+    return ListenableBuilder(
+      listenable: ThemeService.instance,
+      builder: (context, _) {
+        final ts = ThemeService.instance;
+        final boxBg = ts.serviceCategoryBoxBg.withAlpha((255 * ts.serviceCategoryBoxBgOpacity).round());
+        final outlineColor = ts.serviceCategoryBoxOutline;
+        final glowEnabled = ts.serviceCategoryBoxGlowEnabled;
+        final glowStrength = ts.serviceCategoryBoxGlowStrength;
+
+        final unselectedShadows = glowEnabled
+            ? [
+                BoxShadow(
+                  color: outlineColor.withAlpha((90 * glowStrength).round().clamp(0, 255)),
+                  blurRadius: 16 * glowStrength,
+                  spreadRadius: 4 * glowStrength,
+                ),
+                BoxShadow(
+                  color: outlineColor.withAlpha((50 * glowStrength).round().clamp(0, 255)),
+                  blurRadius: 32 * glowStrength,
+                  spreadRadius: 8 * glowStrength,
+                ),
+              ]
+            : [
+                BoxShadow(
+                  color: Colors.black.withAlpha(10),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ];
+
+        return AnimatedBuilder(
+          animation: _entranceController,
+          builder: (context, child) {
+            return Transform.translate(
+              offset: Offset(0, _slideAnimation.value),
+              child: Opacity(opacity: _fadeAnimation.value, child: child),
+            );
+          },
+          child: GestureDetector(
+            onTapDown: (_) => setState(() => _scale = 0.96),
+            onTapUp: (_) {
+              setState(() => _scale = 1.0);
+              widget.onTap();
+            },
+            onTapCancel: () => setState(() => _scale = 1.0),
+            child: AnimatedScale(
+              scale: _scale,
+              duration: const Duration(milliseconds: 120),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutCubic,
+                padding: widget.iconImageUrl != null && widget.iconImageUrl!.isNotEmpty
+                    ? EdgeInsets.zero
+                    : const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: widget.isSelected ? AppTheme.primary : boxBg,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: widget.isSelected
+                        ? AppTheme.primary
+                        : outlineColor,
+                    width: widget.isSelected ? 2 : 2,
+                  ),
+                  boxShadow: widget.isSelected
+                      ? [
+                          BoxShadow(
+                            color: AppTheme.primary.withAlpha(64),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
                           ),
-                          const Spacer(),
-                          if (widget.isSelected)
-                            const Icon(
-                              Icons.check_circle_rounded,
-                              size: 18,
-                              color: Colors.white,
+                        ]
+                      : unselectedShadows,
+                ),
+                child: widget.iconImageUrl != null && widget.iconImageUrl!.isNotEmpty
+                    ? _buildImageTile()
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 36,
+                                height: 36,
+                                decoration: BoxDecoration(
+                                  color: widget.isSelected
+                                      ? Colors.white.withAlpha(51)
+                                      : AppTheme.primaryContainer,
+                                  borderRadius: BorderRadius.circular(9),
+                                ),
+                                alignment: Alignment.center,
+                                child: Text(
+                                  widget.iconEmoji,
+                                  style: const TextStyle(fontSize: 20),
+                                ),
+                              ),
+                              const Spacer(),
+                              if (widget.isSelected)
+                                const Icon(
+                                  Icons.check_circle_rounded,
+                                  size: 18,
+                                  color: Colors.white,
+                                ),
+                            ],
+                          ),
+                          if (ts.showCategoryNames) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              widget.label,
+                              style: GoogleFonts.manrope(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: widget.isSelected
+                                    ? Colors.white
+                                    : AppTheme.onSurface,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
+                          ],
                         ],
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        widget.label,
-                        style: GoogleFonts.manrope(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: widget.isSelected
-                              ? Colors.white
-                              : AppTheme.onSurface,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -214,40 +243,44 @@ class _CategoryTileState extends State<_CategoryTile>
             widget.iconImageUrl!,
             fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) => Center(
-              child: Text(widget.iconEmoji, style: const TextStyle(fontSize: 40)),
+              child: Text(
+                widget.iconEmoji,
+                style: const TextStyle(fontSize: 40),
+              ),
             ),
           ),
           // Bottom gradient for text readability
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: Container(
-              height: 56,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withAlpha(0),
-                    Colors.black.withAlpha(179),
-                  ],
+          if (ThemeService.instance.showCategoryNames)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                height: 56,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withAlpha(0),
+                      Colors.black.withAlpha(179),
+                    ],
+                  ),
                 ),
-              ),
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
-              alignment: Alignment.bottomLeft,
-              child: Text(
-                widget.label,
-                style: GoogleFonts.manrope(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+                alignment: Alignment.bottomLeft,
+                child: Text(
+                  widget.label,
+                  style: GoogleFonts.manrope(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
               ),
             ),
-          ),
           // Selection checkmark
           if (widget.isSelected)
             Positioned(

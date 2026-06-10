@@ -2,15 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:roadrescue_shared/theme/app_theme.dart';
 import 'package:roadrescue_shared/services/localization_service.dart';
+import 'package:roadrescue_shared/services/theme_service.dart';
 
 class TopNavBar extends StatelessWidget {
   final String? cityName;
+  final String? greeting;
+  final String? userName;
   final VoidCallback? onNotificationTap;
+  final VoidCallback? onRefreshLocation;
 
   const TopNavBar({
     super.key,
     this.cityName,
+    this.greeting,
+    this.userName,
     this.onNotificationTap,
+    this.onRefreshLocation,
   });
 
   @override
@@ -40,15 +47,62 @@ class TopNavBar extends StatelessWidget {
                     style: GoogleFonts.manrope(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: AppTheme.onSurface,
+                      color: Colors.white,
                     ),
                   ),
                 ),
+                if (onRefreshLocation != null)
+                  GestureDetector(
+                    onTap: onRefreshLocation,
+                    child: const Padding(
+                      padding: EdgeInsets.all(4),
+                      child: Icon(
+                        Icons.refresh_rounded,
+                        size: 14,
+                        color: AppTheme.primary,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
-          const Spacer(),
-          // Right: Notification only
+          // Center: Greeting + User name
+          if (greeting != null && greeting!.isNotEmpty)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      greeting!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.manrope(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: ThemeService.instance.greetingTextColor,
+                      ),
+                    ),
+                    if (userName != null && userName!.isNotEmpty) ...[
+                      const SizedBox(width: 4),
+                      Text(
+                        userName!.split(' ').first,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.manrope(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: ThemeService.instance.userNameTextColor,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          // Right: Notification
           GestureDetector(
             onTap: onNotificationTap,
             child: Stack(

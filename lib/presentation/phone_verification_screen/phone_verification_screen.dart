@@ -97,19 +97,11 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
   void _redirectByRole() {
     if (!mounted) return;
 
-    if (_userRole == 'provider') {
-      Navigator.pushNamedAndRemoveUntil(
-        context,
-        AppRoutes.providerDocumentsScreen,
-        (r) => false,
-      );
-    } else {
-      Navigator.pushNamedAndRemoveUntil(
-        context,
-        AppRoutes.serviceRequestScreen,
-        (r) => false,
-      );
-    }
+    Navigator.pushNamedAndRemoveUntil(
+      context,
+      AppRoutes.serviceRequestScreen,
+      (r) => false,
+    );
   }
 
   void _startResendTimer() {
@@ -455,7 +447,7 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
           keyboardType: TextInputType.phone,
           enabled: !_codeSent && !_isSendingCode,
           decoration: InputDecoration(
-            hintText: '+1 (555) 123-4567',
+            hintText: l.t('phone_hint'),
             prefixIcon: const Icon(Icons.phone_outlined),
             filled: true,
             fillColor: _codeSent ? AppTheme.surfaceVariant.withAlpha(128) : AppTheme.surfaceVariant,

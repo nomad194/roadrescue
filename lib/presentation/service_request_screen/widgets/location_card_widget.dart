@@ -9,8 +9,9 @@ import 'package:roadrescue_shared/services/location_service.dart';
 
 class LocationCardWidget extends StatefulWidget {
   final Function(double lat, double lng, String address)? onLocationDetected;
+  final double mapHeight;
   
-  const LocationCardWidget({super.key, this.onLocationDetected});
+  const LocationCardWidget({super.key, this.onLocationDetected, this.mapHeight = 200});
 
   @override
   State<LocationCardWidget> createState() => _LocationCardWidgetState();
@@ -308,37 +309,40 @@ class _LocationCardWidgetState extends State<LocationCardWidget>
                   // Action buttons
                   if (!_isDetecting) ...[
                     if (_hasLocation)
-                      TextButton.icon(
-                        onPressed: _acquireLocation,
-                        icon: const Icon(Icons.refresh, size: 16),
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          minimumSize: Size.zero,
-                        ),
-                        label: Text(
-                          l.t('gps_refresh'),
-                          style: GoogleFonts.manrope(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.primary,
+                      Flexible(
+                        child: TextButton.icon(
+                          onPressed: _acquireLocation,
+                          icon: const Icon(Icons.refresh, size: 14),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                            minimumSize: Size.zero,
+                          ),
+                          label: Text(
+                            l.t('gps_refresh'),
+                            style: GoogleFonts.manrope(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.primary,
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       )
                     else
-                      SizedBox(
-                        width: 140,
+                      Flexible(
                         child: ElevatedButton.icon(
                           onPressed: _acquireLocation,
-                          icon: const Icon(Icons.my_location, size: 18),
+                          icon: const Icon(Icons.my_location, size: 16),
                           label: Text(
                             l.t('gps_use_my_location'),
-                            style: GoogleFonts.manrope(fontWeight: FontWeight.w600, fontSize: 12),
+                            style: GoogleFonts.manrope(fontWeight: FontWeight.w600, fontSize: 11),
+                            overflow: TextOverflow.ellipsis,
                           ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.primary,
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
                         ),
                       ),
@@ -503,7 +507,7 @@ class _LocationCardWidgetState extends State<LocationCardWidget>
         if (_hasLocation && _latitude != null && _longitude != null) ...[
           const SizedBox(height: 16),
           Container(
-            height: 200,
+            height: widget.mapHeight,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: AppTheme.outlineVariant),

@@ -13,6 +13,7 @@ void main() {
     expect(AppRoutes.paymentScreen, '/payment-screen');
     expect(AppRoutes.postPaymentScreen, '/post-payment-screen');
     expect(AppRoutes.serviceHistoryScreen, '/service-history-screen');
+    expect(AppRoutes.myVehicleScreen, '/my-vehicle');
     expect(AppRoutes.faqTosScreen, '/faq-tos-screen');
   });
 

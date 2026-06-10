@@ -3,8 +3,10 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:roadrescue_shared/theme/app_theme.dart';
 import 'package:roadrescue_shared/services/supabase_service.dart';
 import 'package:roadrescue_shared/services/localization_service.dart';
+import 'package:roadrescue_shared/services/theme_service.dart';
 
 import 'package:roadrescue_shared/widgets/review_dialog_widget.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ServiceHistoryScreen extends StatefulWidget {
   const ServiceHistoryScreen({super.key});
@@ -16,11 +18,40 @@ class ServiceHistoryScreen extends StatefulWidget {
 class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
   bool _isLoading = true;
   List<Map<String, dynamic>> _history = [];
+  RealtimeChannel? _subscription;
 
   @override
   void initState() {
     super.initState();
     _loadHistory();
+    _subscribe();
+  }
+
+  @override
+  void dispose() {
+    _subscription?.unsubscribe();
+    super.dispose();
+  }
+
+  void _subscribe() {
+    final userId = SupabaseService.instance.currentUser?.id;
+    if (userId == null) return;
+    _subscription = Supabase.instance.client
+        .channel('history_$userId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'job_requests',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'customer_id',
+            value: userId,
+          ),
+          callback: (payload) {
+            if (mounted) _loadHistory();
+          },
+        )
+        .subscribe();
   }
 
   Future<void> _loadHistory() async {
@@ -37,49 +68,67 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final l = LocalizationService.instance;
+    final ts = ThemeService.instance;
+    final screenBg = ts.userScreenBgColor.withAlpha((255 * ts.userScreenBgOpacity).round());
+    final size = MediaQuery.of(context).size;
+
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      backgroundColor: screenBg,
       appBar: AppBar(
-        backgroundColor: AppTheme.surface,
+        backgroundColor: screenBg,
         elevation: 0,
         title: Text(
           l.t('service_history'),
           style: GoogleFonts.manrope(
             fontSize: 18,
             fontWeight: FontWeight.w700,
-            color: AppTheme.onSurface,
+            color: Colors.white,
           ),
         ),
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _history.isEmpty
-          ? _buildEmptyState(l)
-          : _buildHistoryList(l),
+      body: RefreshIndicator(
+        color: Colors.white,
+        backgroundColor: AppTheme.primary,
+        onRefresh: _loadHistory,
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator(color: Colors.white))
+            : _history.isEmpty
+                ? _buildEmptyState(l)
+                : _buildHistoryList(l),
+      ),
     );
   }
 
   Widget _buildEmptyState(LocalizationService l) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.history_rounded,
-            size: 64,
-            color: AppTheme.muted.withAlpha(100),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            l.t('none'),
-            style: GoogleFonts.manrope(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.muted,
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
+        SizedBox(
+          height: MediaQuery.of(context).size.height * 0.4,
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.history_rounded,
+                  size: 64,
+                  color: Colors.white.withAlpha(180),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  l.t('none'),
+                  style: GoogleFonts.manrope(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -101,17 +150,17 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
         String? otherSubtitle;
         String? otherAvatarUrl;
         if (isProvider) {
-          otherName = customerData?['full_name'] as String? ?? 'Customer';
+          otherName = customerData?['full_name'] as String? ?? l.t('customer');
           otherAvatarUrl = customerData?['avatar_url'] as String?;
         } else {
           final business = providerData?['business_name'] as String?;
-          final providerName = providerData?['full_name'] as String? ?? 'Provider';
+          final providerName = providerData?['full_name'] as String? ?? l.t('provider');
           otherName = business?.isNotEmpty == true ? business! : providerName;
           otherSubtitle = business?.isNotEmpty == true ? providerName : null;
           otherAvatarUrl = providerData?['avatar_url'] as String?;
         }
 
-        final String serviceType = item['service_type'] as String? ?? 'Service';
+        final String serviceType = item['service_type'] as String? ?? '';
         final double? price = (item['quoted_price'] as num?)?.toDouble();
         final bool showRatingButton = !isProvider && item['customer_rating'] == null;
         final bool showStars = !isProvider && item['customer_rating'] != null;
@@ -120,9 +169,9 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
         return Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: AppTheme.surface,
+            color: Colors.white.withAlpha(20),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.outlineVariant),
+            border: Border.all(color: Colors.white.withAlpha(80)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -137,6 +186,7 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
                       style: GoogleFonts.manrope(
                         fontWeight: FontWeight.w700,
                         fontSize: 15,
+                        color: Colors.white,
                       ),
                     ),
                   ),
@@ -145,20 +195,20 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
                     style: GoogleFonts.manrope(
                       fontWeight: FontWeight.w800,
                       fontSize: 15,
-                      color: price != null ? AppTheme.primary : AppTheme.muted,
+                      color: price != null ? AppTheme.serviceRequestAccent : Colors.white.withAlpha(180),
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
-              const Divider(height: 1),
+              Divider(height: 1, color: Colors.white.withAlpha(40)),
               const SizedBox(height: 12),
               // Other party row with avatar
               Row(
                 children: [
                   CircleAvatar(
                     radius: 20,
-                    backgroundColor: AppTheme.primaryContainer,
+                    backgroundColor: Colors.white.withAlpha(40),
                     backgroundImage: otherAvatarUrl != null && otherAvatarUrl.isNotEmpty
                         ? NetworkImage(otherAvatarUrl) as ImageProvider
                         : null,
@@ -171,7 +221,7 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
                             style: GoogleFonts.manrope(
                               fontSize: 14,
                               fontWeight: FontWeight.w700,
-                              color: AppTheme.primary,
+                              color: AppTheme.serviceRequestAccent,
                             ),
                           )
                         : null,
@@ -185,7 +235,7 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
                         style: GoogleFonts.manrope(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: AppTheme.onSurface,
+                          color: Colors.white,
                         ),
                       ),
                       if (otherSubtitle != null)
@@ -193,7 +243,7 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
                           otherSubtitle,
                           style: GoogleFonts.manrope(
                             fontSize: 11,
-                            color: AppTheme.muted,
+                            color: Colors.white.withAlpha(180),
                           ),
                         ),
                     ],
@@ -201,11 +251,11 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
                   const Spacer(),
                   Row(
                     children: [
-                      const Icon(Icons.calendar_today_outlined, size: 13, color: AppTheme.muted),
+                      Icon(Icons.calendar_today_outlined, size: 13, color: Colors.white.withAlpha(180)),
                       const SizedBox(width: 4),
                       Text(
                         _formatDate(completedAt),
-                        style: GoogleFonts.manrope(fontSize: 12, color: AppTheme.muted),
+                        style: GoogleFonts.manrope(fontSize: 12, color: Colors.white.withAlpha(180)),
                       ),
                     ],
                   ),
@@ -219,8 +269,8 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
                     if (showRatingButton)
                       TextButton.icon(
                         onPressed: () => _showReviewDialog(item['id'] as String),
-                        icon: const Icon(Icons.star_border_rounded, size: 16),
-                        label: Text(l.t('rating')),
+                        icon: Icon(Icons.star_border_rounded, size: 16, color: Colors.white.withAlpha(180)),
+                        label: Text(l.t('rating'), style: TextStyle(color: Colors.white.withAlpha(180))),
                         style: TextButton.styleFrom(
                           padding: EdgeInsets.zero,
                           minimumSize: Size.zero,
@@ -234,7 +284,7 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
                           size: 16,
                           color: i < (item['customer_rating'] as int)
                               ? Colors.amber
-                              : AppTheme.muted.withAlpha(100),
+                              : Colors.white.withAlpha(80),
                         )),
                       ),
                   ],
@@ -247,7 +297,7 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
                   '"${item['customer_review']}"',
                   style: GoogleFonts.manrope(
                     fontSize: 12,
-                    color: AppTheme.onSurfaceVariant,
+                    color: Colors.white.withAlpha(180),
                     fontStyle: FontStyle.italic,
                   ),
                 ),
@@ -304,14 +354,14 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
           Icon(
             isPublic ? Icons.public : Icons.lock,
             size: 14,
-            color: AppTheme.muted,
+            color: Colors.white.withAlpha(180),
           ),
           const SizedBox(width: 4),
           Text(
-            isPublic ? 'Public' : 'Private',
+            isPublic ? LocalizationService.instance.t('public') : LocalizationService.instance.t('private'),
             style: GoogleFonts.manrope(
               fontSize: 11,
-              color: AppTheme.muted,
+              color: Colors.white.withAlpha(180),
             ),
           ),
         ],

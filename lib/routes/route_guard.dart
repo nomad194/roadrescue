@@ -3,45 +3,34 @@ import 'package:flutter/material.dart';
 import 'package:roadrescue_shared/services/supabase_service.dart';
 import 'app_routes.dart';
 
-/// Roles allowed per route. Null means any authenticated user.
+/// Roles allowed per route. Null means any authenticated user (or public).
+/// roadrescue is customer-only — provider routes have moved to provider_app.
 const Map<String, List<String>?> _routeRoles = {
   AppRoutes.initial: null,
   AppRoutes.signUpLoginScreen: null,
   AppRoutes.faqTosScreen: null,
-  AppRoutes.completeCustomerProfileScreen: null,
-  AppRoutes.completeProviderProfileScreen: null,
-  AppRoutes.serviceRequestScreen: ['customer', 'provider'],
-  AppRoutes.customerProfileScreen: ['customer', 'provider'],
-  AppRoutes.serviceHistoryScreen: ['customer', 'provider'],
-  AppRoutes.paymentScreen: ['customer', 'provider'],
-  AppRoutes.postPaymentScreen: ['customer', 'provider'],
-  AppRoutes.jobRequestsScreen: ['customer', 'provider'],
-  AppRoutes.providerProfileScreen: ['customer', 'provider'],
-  AppRoutes.providerDocumentsScreen: ['provider'],
-};
-
-/// Routes that require document verification for providers.
-/// If a provider is not verified, they will be redirected to the documents screen.
-const Set<String> _providerVerificationRequired = {
-  AppRoutes.jobRequestsScreen,
-  AppRoutes.providerProfileScreen,
+  AppRoutes.forgotPasswordScreen: null,
+  AppRoutes.completeCustomerProfileScreen: ['customer'],
+  AppRoutes.serviceRequestScreen: ['customer'],
+  AppRoutes.customerProfileScreen: ['customer'],
+  AppRoutes.serviceHistoryScreen: ['customer'],
+  AppRoutes.myVehicleScreen: ['customer'],
+  AppRoutes.paymentScreen: ['customer'],
+  AppRoutes.postPaymentScreen: ['customer'],
+  AppRoutes.phoneVerificationScreen: ['customer'],
 };
 
 /// Routes that require phone verification.
-/// All sensitive routes require phone verification.
 const Set<String> _phoneVerificationRequired = {
   AppRoutes.serviceRequestScreen,
-  AppRoutes.jobRequestsScreen,
   AppRoutes.customerProfileScreen,
-  AppRoutes.providerProfileScreen,
   AppRoutes.paymentScreen,
   AppRoutes.postPaymentScreen,
   AppRoutes.serviceHistoryScreen,
-  AppRoutes.providerDocumentsScreen,
-  AppRoutes.providerReviewsScreen,
+  AppRoutes.myVehicleScreen,
 };
 
-class RouteGuard extends StatelessWidget {
+class RouteGuard extends StatefulWidget {
   final String routeName;
   final Widget child;
 
@@ -57,12 +46,29 @@ class RouteGuard extends StatelessWidget {
   }
 
   @override
+  State<RouteGuard> createState() => _RouteGuardState();
+}
+
+class _RouteGuardState extends State<RouteGuard> {
+  // Cache the future so rebuilds don't re-fire it
+  Future<Map<String, dynamic>?>? _profileFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    final user = SupabaseService.instance.currentUser;
+    if (user != null && _routeRoles[widget.routeName] != null) {
+      _profileFuture = SupabaseService.instance.getUserProfile(user.id);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final user = SupabaseService.instance.currentUser;
-    final allowedRoles = _routeRoles[routeName];
+    final allowedRoles = _routeRoles[widget.routeName];
 
     if (allowedRoles == null) {
-      return child;
+      return widget.child;
     }
 
     if (user == null) {
@@ -80,7 +86,7 @@ class RouteGuard extends StatelessWidget {
     }
 
     return FutureBuilder<Map<String, dynamic>?>(
-      future: SupabaseService.instance.getUserProfile(user.id),
+      future: _profileFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
           return const Scaffold(
@@ -95,37 +101,19 @@ class RouteGuard extends StatelessWidget {
         if (!allowedRoles.contains(role)) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!context.mounted) return;
-            final redirect = role == 'provider'
-                ? AppRoutes.jobRequestsScreen
-                : AppRoutes.serviceRequestScreen;
-            Navigator.pushNamedAndRemoveUntil(context, redirect, (r) => false);
+            Navigator.pushNamedAndRemoveUntil(
+              context,
+              AppRoutes.serviceRequestScreen,
+              (r) => false,
+            );
           });
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
         }
 
-        // Block unverified providers from protected routes
-        if (role == 'provider' &&
-            _providerVerificationRequired.contains(routeName)) {
-          final isVerified = snapshot.data?['is_verified'] as bool? ?? false;
-          if (!isVerified) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!context.mounted) return;
-              Navigator.pushNamedAndRemoveUntil(
-                context,
-                AppRoutes.providerDocumentsScreen,
-                (r) => false,
-              );
-            });
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
-          }
-        }
-
         // Block users without phone verification from sensitive routes
-        if (_phoneVerificationRequired.contains(routeName)) {
+        if (_phoneVerificationRequired.contains(widget.routeName)) {
           final phoneVerifiedAt = snapshot.data?['phone_verified_at'];
           if (phoneVerifiedAt == null) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -142,7 +130,7 @@ class RouteGuard extends StatelessWidget {
           }
         }
 
-        return child;
+        return widget.child;
       },
     );
   }

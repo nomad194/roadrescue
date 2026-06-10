@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:roadrescue_shared/theme/app_theme.dart';
 import 'package:roadrescue_shared/services/localization_service.dart';
+import 'package:roadrescue_shared/services/theme_service.dart';
 
 class RequestFormWidget extends StatelessWidget {
   final TextEditingController controller;
@@ -21,16 +22,9 @@ class RequestFormWidget extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppTheme.surface,
+        color: Colors.white.withAlpha(15),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.outlineVariant),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(10),
-            blurRadius: 12,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        border: Border.all(color: ThemeService.instance.serviceRequestPopupOutlineColor.withAlpha(80)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -40,7 +34,7 @@ class RequestFormWidget extends StatelessWidget {
             style: GoogleFonts.manrope(
               fontSize: 14,
               fontWeight: FontWeight.w700,
-              color: AppTheme.onSurface,
+              color: ThemeService.instance.serviceRequestPopupButtonBg,
             ),
           ),
           const SizedBox(height: 12),
@@ -52,29 +46,29 @@ class RequestFormWidget extends StatelessWidget {
               hintText: l.t('describe_situation_hint'),
               hintStyle: GoogleFonts.manrope(
                 fontSize: 13,
-                color: AppTheme.muted,
+                color: Colors.white54,
               ),
               filled: true,
-              fillColor: AppTheme.surfaceVariant,
+              fillColor: Colors.white.withAlpha(20),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: AppTheme.outline),
+                borderSide: BorderSide(color: Colors.white.withAlpha(80)),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: AppTheme.outline),
+                borderSide: BorderSide(color: Colors.white.withAlpha(80)),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: AppTheme.primary, width: 2),
+                borderSide: BorderSide(color: ThemeService.instance.serviceRequestPopupButtonBg, width: 2),
               ),
               contentPadding: const EdgeInsets.all(12),
               counterStyle: GoogleFonts.manrope(
                 fontSize: 11,
-                color: AppTheme.muted,
+                color: Colors.white54,
               ),
             ),
-            style: GoogleFonts.manrope(fontSize: 13, color: AppTheme.onSurface),
+            style: GoogleFonts.manrope(fontSize: 13, color: Colors.white),
           ),
           const SizedBox(height: 16),
           Text(
@@ -82,7 +76,7 @@ class RequestFormWidget extends StatelessWidget {
             style: GoogleFonts.manrope(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: AppTheme.onSurfaceVariant,
+              color: ThemeService.instance.serviceRequestPopupButtonBg,
             ),
           ),
           const SizedBox(height: 8),
@@ -92,7 +86,7 @@ class RequestFormWidget extends StatelessWidget {
                 label: l.t('standard_urgency'),
                 sublabel: l.t('no_immediate_danger'),
                 icon: Icons.access_time_rounded,
-                color: AppTheme.primary,
+                color: ThemeService.instance.serviceRequestPopupButtonBg,
                 isSelected: urgencyLevel == 'standard',
                 onTap: () => onUrgencyChanged('standard'),
               ),
@@ -101,7 +95,7 @@ class RequestFormWidget extends StatelessWidget {
                 label: l.t('urgent_urgency'),
                 sublabel: l.t('safety_concern'),
                 icon: Icons.priority_high_rounded,
-                color: AppTheme.error,
+                color: ThemeService.instance.serviceRequestPopupButtonBg,
                 isSelected: urgencyLevel == 'urgent',
                 onTap: () => onUrgencyChanged('urgent'),
               ),
@@ -111,15 +105,15 @@ class RequestFormWidget extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: AppTheme.surfaceVariant,
+              color: Colors.white.withAlpha(20),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.info_outline_rounded,
                   size: 15,
-                  color: AppTheme.muted,
+                  color: ThemeService.instance.serviceRequestPopupButtonBg,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -127,7 +121,7 @@ class RequestFormWidget extends StatelessWidget {
                     l.t('urgent_request_info'),
                     style: GoogleFonts.manrope(
                       fontSize: 11,
-                      color: AppTheme.muted,
+                      color: Colors.white70,
                       height: 1.4,
                     ),
                   ),
@@ -167,16 +161,16 @@ class _UrgencyChip extends StatelessWidget {
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: isSelected ? color.withAlpha(26) : AppTheme.surfaceVariant,
+            color: isSelected ? color.withAlpha(40) : Colors.white.withAlpha(20),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: isSelected ? color : AppTheme.outline,
+              color: isSelected ? color : Colors.white.withAlpha(80),
               width: isSelected ? 2 : 1,
             ),
           ),
           child: Row(
             children: [
-              Icon(icon, size: 18, color: isSelected ? color : AppTheme.muted),
+              Icon(icon, size: 18, color: isSelected ? color : Colors.white70),
               const SizedBox(width: 8),
               Expanded(
                 child: Column(
@@ -187,14 +181,14 @@ class _UrgencyChip extends StatelessWidget {
                       style: GoogleFonts.manrope(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: isSelected ? color : AppTheme.onSurface,
+                        color: isSelected ? color : Colors.white,
                       ),
                     ),
                     Text(
                       sublabel,
                       style: GoogleFonts.manrope(
                         fontSize: 10,
-                        color: AppTheme.muted,
+                        color: Colors.white54,
                       ),
                     ),
                   ],

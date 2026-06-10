@@ -29,10 +29,12 @@ class SignUpLoginScreen extends StatefulWidget {
 class _SignUpLoginScreenState extends State<SignUpLoginScreen>
     with SingleTickerProviderStateMixin {
   bool _isLogin = true;
-  String _selectedRole = 'customer';
+  // Role is hardcoded — roadrescue is customer-only
+  static const String _selectedRole = 'customer';
   bool _isLoading = false;
   String? _errorMessage;
   bool _showDemoCredentials = false;
+  bool _isNavigating = false;
 
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
@@ -41,9 +43,6 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
   @override
   void initState() {
     super.initState();
-    if (widget.fixedRole != null) {
-      _selectedRole = widget.fixedRole!;
-    }
     _fadeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 350),
@@ -73,15 +72,31 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
 
     // Listen for auth state changes (handles OAuth browser redirect callback)
     _authSubscription = SupabaseService.instance.authStateChanges.listen((data) async {
-      if (data.event == AuthChangeEvent.signedIn && mounted) {
-        try {
-          await _redirectByRole();
-        } on PostgrestException catch (e) {
-          if (e.code == '401' || e.message.toLowerCase().contains('jwt expired')) {
-            await Supabase.instance.client.auth.signOut();
+      if (data.event != AuthChangeEvent.signedIn && data.event != AuthChangeEvent.tokenRefreshed) return;
+      if (data.session == null || !mounted) return;
+      if (_isNavigating) return;
+      _isNavigating = true;
+      debugPrint('[SignUpLogin] authStateChange: ${data.event} — redirecting...');
+      try {
+        await _redirectByRole();
+      } on PostgrestException catch (e) {
+        debugPrint('[SignUpLogin] PostgrestException during redirect: ${e.code} ${e.message}');
+        if (e.code == '401' || e.message.toLowerCase().contains('jwt expired')) {
+          await Supabase.instance.client.auth.signOut();
+        }
+        _isNavigating = false;
+      } catch (e) {
+        debugPrint('[SignUpLogin] Error during redirect after auth: $e');
+        _isNavigating = false;
+        // Retry once after a brief delay (session may not be fully established)
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted && SupabaseService.instance.currentUser != null && !_isNavigating) {
+          _isNavigating = true;
+          try {
+            await _redirectByRole();
+          } catch (_) {
+            _isNavigating = false;
           }
-        } catch (_) {
-          // Stay on login screen for other errors
         }
       }
     });
@@ -129,21 +144,27 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
 
     if (!mounted) return;
 
-    // New social-auth users (or users with missing phone) go to completion screens
-    if (isNew || phone.isEmpty) {
-      if (role == 'provider') {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          AppRoutes.completeProviderProfileScreen,
-          (r) => false,
-        );
-      } else {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          AppRoutes.completeCustomerProfileScreen,
-          (r) => false,
-        );
+    // Block providers — they must use the provider_app
+    if (role == 'provider') {
+      await Supabase.instance.client.auth.signOut();
+      if (mounted) {
+        final l = LocalizationService.instance;
+        setState(() {
+          _errorMessage = l.t('wrong_role_provider');
+          _isLoading = false;
+        });
       }
+      return;
+    }
+
+    // New social-auth users (or users with missing phone) go to completion screen
+    if (isNew || phone.isEmpty) {
+      if (!mounted) return;
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        AppRoutes.completeCustomerProfileScreen,
+        (r) => false,
+      );
       return;
     }
 
@@ -162,22 +183,12 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
       return;
     }
 
-    // Phone is verified, proceed to role-based redirect
-    if (role == 'provider') {
-      // Check if provider documents are verified; if not, redirect to documents screen
-      final isVerified = profile?['is_verified'] as bool? ?? false;
-      Navigator.pushNamedAndRemoveUntil(
-        context,
-        isVerified ? AppRoutes.jobRequestsScreen : AppRoutes.providerDocumentsScreen,
-        (r) => false,
-      );
-    } else {
-      Navigator.pushNamedAndRemoveUntil(
-        context,
-        AppRoutes.serviceRequestScreen,
-        (r) => false,
-      );
-    }
+    // Phone is verified — redirect to customer home
+    Navigator.pushNamedAndRemoveUntil(
+      context,
+      AppRoutes.serviceRequestScreen,
+      (r) => false,
+    );
   }
 
   Future<void> _onSubmit({
@@ -248,10 +259,11 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
     final role = widget.fixedRole ?? _selectedRole;
 
     final bgColor = themeService.getBgColorFor(role: role, isLogin: _isLogin);
+    final bgOpacity = themeService.getBgOpacityFor(role: role, isLogin: _isLogin);
     final bgImageUrl = themeService.getBgImageUrlFor(role: role, isLogin: _isLogin);
 
     return Scaffold(
-      backgroundColor: bgColor ?? Theme.of(context).scaffoldBackgroundColor,
+      backgroundColor: bgColor?.withAlpha((255 * bgOpacity).round()) ?? Theme.of(context).scaffoldBackgroundColor,
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -313,83 +325,6 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
                     selectedRole: _selectedRole,
                     isSignUp: !_isLogin,
                   ),
-                  if (widget.fixedRole == null) ...[
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.center,
-                      child: Material(
-                        elevation: 6,
-                        borderRadius: BorderRadius.circular(12),
-                        shadowColor: Colors.black.withAlpha(100),
-                        child: SizedBox(
-                          height: 36,
-                          child: OutlinedButton.icon(
-                            onPressed: () => Navigator.pushNamed(
-                              context,
-                              AppRoutes.providerLoginScreen,
-                            ),
-                            icon: const Icon(
-                              Icons.build_circle_rounded,
-                              size: 16,
-                              color: AppTheme.primary,
-                            ),
-                            label: Text(
-                              LocalizationService.instance.t('provider_login'),
-                              style: GoogleFonts.manrope(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.primary,
-                              ),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: AppTheme.primary),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              padding: const EdgeInsets.symmetric(horizontal: 12),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                  if (widget.fixedRole == 'provider') ...[
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Material(
-                        elevation: 6,
-                        borderRadius: BorderRadius.circular(12),
-                        shadowColor: Colors.black.withAlpha(100),
-                        child: SizedBox(
-                          height: 36,
-                          child: OutlinedButton.icon(
-                            onPressed: () => Navigator.of(context).pop(),
-                            icon: const Icon(
-                              Icons.directions_car_rounded,
-                              size: 16,
-                              color: AppTheme.primary,
-                            ),
-                            label: Text(
-                              LocalizationService.instance.t('driver_login'),
-                              style: GoogleFonts.manrope(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.primary,
-                              ),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: AppTheme.primary),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              padding: const EdgeInsets.symmetric(horizontal: 12),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
                   if (_showDemoCredentials) ...[
                     const SizedBox(height: 24),
                     DemoCredentialsWidget(selectedRole: _selectedRole),
@@ -457,83 +392,6 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
                           selectedRole: _selectedRole,
                           isSignUp: !_isLogin,
                         ),
-                        if (widget.fixedRole == null) ...[
-                          const SizedBox(height: 8),
-                          Align(
-                            alignment: Alignment.center,
-                            child: Material(
-                              elevation: 6,
-                              borderRadius: BorderRadius.circular(12),
-                              shadowColor: Colors.black.withAlpha(100),
-                              child: SizedBox(
-                                height: 36,
-                                child: OutlinedButton.icon(
-                                  onPressed: () => Navigator.pushNamed(
-                                    context,
-                                    AppRoutes.providerLoginScreen,
-                                  ),
-                                  icon: const Icon(
-                                    Icons.build_circle_rounded,
-                                    size: 16,
-                                    color: AppTheme.primary,
-                                  ),
-                                  label: Text(
-                                    LocalizationService.instance.t('provider_login'),
-                                    style: GoogleFonts.manrope(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppTheme.primary,
-                                    ),
-                                  ),
-                                  style: OutlinedButton.styleFrom(
-                                    side: const BorderSide(color: AppTheme.primary),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                        if (widget.fixedRole == 'provider') ...[
-                          const SizedBox(height: 8),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: Material(
-                              elevation: 6,
-                              borderRadius: BorderRadius.circular(12),
-                              shadowColor: Colors.black.withAlpha(100),
-                              child: SizedBox(
-                                height: 36,
-                                child: OutlinedButton.icon(
-                                  onPressed: () => Navigator.of(context).pop(),
-                                  icon: const Icon(
-                                    Icons.directions_car_rounded,
-                                    size: 16,
-                                    color: AppTheme.primary,
-                                  ),
-                                  label: Text(
-                                    LocalizationService.instance.t('driver_login'),
-                                    style: GoogleFonts.manrope(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppTheme.primary,
-                                    ),
-                                  ),
-                                  style: OutlinedButton.styleFrom(
-                                    side: const BorderSide(color: AppTheme.primary),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
                         if (_showDemoCredentials) ...[
                           const SizedBox(height: 24),
                           DemoCredentialsWidget(selectedRole: _selectedRole),

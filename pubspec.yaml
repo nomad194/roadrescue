@@ -42,7 +42,7 @@ dependencies:
   # Note: image_picker_android will need updates from Flutter team for full built-in Kotlin support
   flutter_colorpicker: ^1.1.0
   roadrescue_shared:
-    path: shared
+    path: ../shared
 
 dev_dependencies:
   flutter_test:    # CRITICAL: Required for Flutter project testing - DO NOT REMOVE
@@ -52,15 +52,4 @@ dev_dependencies:
 flutter:
   uses-material-design: true # CRITICAL: Required for Material icon font - DO NOT REMOVE
   assets:
-    - assets/
-    - assets/images/
-    - assets/lang/
-    - assets/fonts/Manrope-Regular.ttf
-    - assets/fonts/Manrope-Medium.ttf
-    - assets/fonts/Manrope-SemiBold.ttf
-    - assets/fonts/Manrope-Bold.ttf
-    - assets/fonts/Manrope-ExtraBold.ttf
-  fonts:
-    - family: Manrope
-      fonts:
-        - asset: assets/fonts/Manrope-Variable.ttf
+    - assets/  # reserved for future app-specific assets

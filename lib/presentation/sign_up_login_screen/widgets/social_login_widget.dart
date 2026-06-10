@@ -166,21 +166,23 @@ class _SocialLoginWidgetState extends State<SocialLoginWidget> {
 
     if (!mounted) return;
 
-    // New social-auth users (or users with missing phone) go to completion screens
-    if (isNew || phone.isEmpty) {
-      if (role == 'provider') {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          AppRoutes.completeProviderProfileScreen,
-          (r) => false,
-        );
-      } else {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          AppRoutes.completeCustomerProfileScreen,
-          (r) => false,
-        );
+    // Block providers — they must use the provider_app
+    if (role == 'provider') {
+      await SupabaseService.instance.signOut();
+      if (mounted) {
+        _showError(LocalizationService.instance.t('wrong_role_provider'));
       }
+      return;
+    }
+
+    // New social-auth users (or users with missing phone) go to customer completion screen
+    if (isNew || phone.isEmpty) {
+      if (!mounted) return;
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        AppRoutes.completeCustomerProfileScreen,
+        (r) => false,
+      );
       return;
     }
 
@@ -201,19 +203,11 @@ class _SocialLoginWidgetState extends State<SocialLoginWidget> {
 
     if (!mounted) return;
 
-    if (role == 'provider') {
-      Navigator.pushNamedAndRemoveUntil(
-        context,
-        AppRoutes.providerDocumentsScreen,
-        (r) => false,
-      );
-    } else {
-      Navigator.pushNamedAndRemoveUntil(
-        context,
-        AppRoutes.serviceRequestScreen,
-        (r) => false,
-      );
-    }
+    Navigator.pushNamedAndRemoveUntil(
+      context,
+      AppRoutes.serviceRequestScreen,
+      (r) => false,
+    );
   }
 
   void _showError(String message) {
