@@ -34,6 +34,19 @@ void main() async {
     return;
   }
 
+  // 1b. Refresh auth session so the JWT is valid for subsequent DB queries.
+  //     Supabase.initialize() restores the persisted session but the access
+  //     token may already be expired; the SDK's auto-refresh is async and may
+  //     not complete before service init queries fire.
+  try {
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session != null) {
+      await Supabase.instance.client.auth.refreshSession();
+    }
+  } catch (e) {
+    // If refresh fails (e.g. offline), services will fall back to defaults.
+  }
+
   // 2. Initialize Other Services
   try {
     await StripeService.initialize();
